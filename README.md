@@ -98,6 +98,9 @@ curl localhost:9999/_microburst/fired
   headers:                   # optional; all must match (substring)
     x-amz-acl: public-read   # e.g. only canned-ACL puts
     x-amz-copy-source: ""    # "" = presence check (e.g. CopyObject)
+  body: "TableName == 'orders'"        # jmespath on JSON/form body — truthy = match
+  rate: {count: 5, window_s: 60}       # at most N fires per rolling window
+  sequence: {fail: 3, pass: 2}         # fail 3, pass 2, repeat
   probability: 0.5           # default 1.0
   deterministic: true        # hash the request identity — the same resource
                              # always lands on the same side of p (reproducible

@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import json
 import random
 import time
+from collections import deque
 from dataclasses import dataclass, field
+from urllib.parse import parse_qsl
+
+import jmespath
 
 from microburst.core.context import RequestContext
 from microburst.models import operation_error_names
@@ -42,6 +47,10 @@ class Rule:
     region: str | None = None
     resource: str | None = None
     headers: dict[str, str] | None = None
+    body: str | None = None          # jmespath expression — truthy = match
+    rate_count: int | None = None    # at most N fires per rate_window
+    rate_window: float | None = None  # seconds
+    sequence: tuple[int, int] | None = None  # (fail N, pass M), repeating
     probability: float = 1.0
     deterministic: bool = False
     times: int | None = None
@@ -51,6 +60,9 @@ class Rule:
     reset: bool = False
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
+    _body_expr: object = field(default=None, repr=False)
+    _fired_ts: deque = field(default_factory=deque, repr=False)
+    _seq_pos: int = field(default=0, repr=False)
 
     def matches(self, info: RequestContext) -> bool:
         if self.times is not None and self.fired_count >= self.times:
@@ -70,6 +82,24 @@ class Rule:
                 # semantics as the resource matcher
                 if value is None or needle not in value:
                     return False
+        if self.body is not None:
+            parsed = _body_value(info)
+            if parsed is None or not self._body_expr.search(parsed):
+                return False
+        if self.rate_count is not None:
+            now = time.time()
+            while self._fired_ts and now - self._fired_ts[0] >= self.rate_window:
+                self._fired_ts.popleft()
+            if len(self._fired_ts) >= self.rate_count:
+                return False
+        if self.sequence is not None:
+            # every request that gets this far consumes a sequence slot,
+            # whether it lands in the fail or pass phase
+            fail, total = self.sequence[0], self.sequence[0] + self.sequence[1]
+            pos = self._seq_pos
+            self._seq_pos = (self._seq_pos + 1) % total
+            if pos >= fail:
+                return False
         return True
 
 
@@ -85,7 +115,9 @@ class Decision:
 def from_dict(data: dict) -> Rule:
     error = data.get("error")
     latency = data.get("latency")
-    return Rule(
+    rate = data.get("rate")
+    sequence = data.get("sequence")
+    rule = Rule(
         service=data.get("service"),
         operation=data.get("operation"),
         region=data.get("region"),
@@ -93,6 +125,16 @@ def from_dict(data: dict) -> Rule:
         headers=(
             {str(k): str(v) for k, v in data["headers"].items()}
             if isinstance(data.get("headers"), dict)
+            else None
+        ),
+        body=data.get("body"),
+        rate_count=int(rate["count"]) if isinstance(rate, dict) else None,
+        rate_window=float(rate.get("window_s", 60)) if isinstance(rate, dict) else None,
+        sequence=(
+            (int(sequence["fail"]), int(sequence["pass"]))
+            if isinstance(sequence, dict)
+            else (int(sequence[0]), int(sequence[1]))
+            if isinstance(sequence, (list, tuple)) and len(sequence) == 2
             else None
         ),
         probability=float(data.get("probability", 1.0)),
@@ -109,6 +151,12 @@ def from_dict(data: dict) -> Rule:
         timeout_ms=data.get("timeout_ms"),
         reset=bool(data.get("reset", False)),
     )
+    if rule.body is not None:
+        try:
+            rule._body_expr = jmespath.compile(rule.body)
+        except jmespath.exceptions.JMESPathError as e:
+            raise ValueError(f"invalid body jmespath {rule.body!r}: {e}") from e
+    return rule
 
 
 def to_dict(rule: Rule) -> dict:
@@ -119,6 +167,12 @@ def to_dict(rule: Rule) -> dict:
             out[attr] = value
     if rule.headers:
         out["headers"] = rule.headers
+    if rule.body is not None:
+        out["body"] = rule.body
+    if rule.rate_count is not None:
+        out["rate"] = {"count": rule.rate_count, "window_s": rule.rate_window}
+    if rule.sequence is not None:
+        out["sequence"] = {"fail": rule.sequence[0], "pass": rule.sequence[1]}
     if rule.probability != 1.0:
         out["probability"] = rule.probability
     if rule.deterministic:
@@ -196,6 +250,8 @@ class RuleEngine:
             if draw >= rule.probability:
                 continue
             rule.fired_count += 1
+            if rule.rate_count is not None:
+                rule._fired_ts.append(time.time())
             error = rule.error
             if error and error.code is None:
                 plausible = operation_error_names(info.service or "", info.operation or "")
@@ -255,6 +311,29 @@ PRESETS: dict[str, dict] = {
         "error": {"code": "InternalError", "status": 500},
     },
 }
+
+
+_UNPARSED = object()
+
+
+def _body_value(info: RequestContext):
+    """Parse the request body for jmespath — JSON first, then form-encoded
+    (query-protocol services post Action&Param= form bodies). Cached on the
+    context so a rule chain parses at most once."""
+    cached = getattr(info, "_parsed_body", _UNPARSED)
+    if cached is not _UNPARSED:
+        return cached
+    parsed = None
+    if info.body:
+        try:
+            parsed = json.loads(info.body)
+        except (ValueError, UnicodeDecodeError):
+            try:
+                parsed = dict(parse_qsl(info.body.decode("utf-8", "replace")))
+            except Exception:  # noqa: BLE001 — opaque bodies just don't match
+                parsed = None
+    info._parsed_body = parsed
+    return parsed
 
 
 def _header(headers, name: str) -> str | None:

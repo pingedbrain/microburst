@@ -181,3 +181,91 @@ def test_header_yaml_int_normalized():
     from microburst.rules import from_dict
     rule = from_dict({"service": "s3", "headers": {"x-attempt": 1}})
     assert rule.headers == {"x-attempt": "1"}
+
+
+# -- body matchers ----------------------------------------------------------
+
+
+def _ctx_body(body: bytes, service="dynamodb"):
+    return RequestContext(service=service, operation="PutItem", body=body)
+
+
+def test_body_jmespath_json():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "dynamodb", "body": "TableName == 'orders'",
+          "error": {"code": "ProvisionedThroughputExceededException"}}]
+    )
+    hit = _ctx_body(b'{"TableName": "orders", "Item": {}}')
+    miss = _ctx_body(b'{"TableName": "other", "Item": {}}')
+    assert engine.decide(hit) is not None
+    assert engine.decide(miss) is None
+
+
+def test_body_jmespath_nested():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "dynamodb", "body": "Item.tenant.S == 'vip'",
+          "error": {"code": "ThrottlingException"}}]
+    )
+    hit = _ctx_body(b'{"TableName": "t", "Item": {"tenant": {"S": "vip"}}}')
+    miss = _ctx_body(b'{"TableName": "t", "Item": {"tenant": {"S": "free"}}}')
+    assert engine.decide(hit) is not None
+    assert engine.decide(miss) is None
+
+
+def test_body_form_encoded():
+    # query-protocol services post Action=...&Param=... form bodies
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "sns", "body": "TopicArn == 'arn:aws:sns:us-east-1:1:t'",
+          "error": {"code": "ThrottledException"}}]
+    )
+    hit = _ctx_body(b"Action=Publish&TopicArn=arn%3Aaws%3Asns%3Aus-east-1%3A1%3At", "sns")
+    assert engine.decide(hit) is not None
+
+
+def test_body_unparsable_no_match():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "dynamodb", "body": "TableName == 'x'",
+          "error": {"code": "ThrottlingException"}}]
+    )
+    assert engine.decide(_ctx_body(b"\x00\xff binary garbage")) is None
+    assert engine.decide(_ctx_body(None)) is None
+
+
+def test_body_invalid_expression_rejected():
+    from microburst.rules import from_dict
+    try:
+        from_dict({"body": "[[[invalid"})
+    except ValueError as e:
+        assert "invalid body jmespath" in str(e)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+# -- rate + sequence ----------------------------------------------------------
+
+
+def test_rate_limit_window():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "rate": {"count": 2, "window_s": 60},
+          "error": {"code": "SlowDown"}}]
+    )
+    ctx = _ctx("a")
+    assert engine.decide(ctx) is not None
+    assert engine.decide(ctx) is not None
+    assert engine.decide(ctx) is None  # budget exhausted
+
+
+def test_sequence_fail_pass():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "sequence": {"fail": 2, "pass": 2},
+          "error": {"code": "SlowDown"}}]
+    )
+    ctx = _ctx("a")
+    outcomes = [engine.decide(ctx) is not None for _ in range(8)]
+    assert outcomes == [True, True, False, False, True, True, False, False]

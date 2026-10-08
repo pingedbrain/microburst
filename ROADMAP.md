@@ -65,12 +65,13 @@ query-marker + required-header disambiguation.
 
 ## Rules (`rules.py`)
 
-- Body matchers — jmespath/JSONPath expressions on the request payload.
-  `[size:M]` (big contributor unlock)
+- ~~Body matchers~~ ✅ — `body: <jmespath>` evaluated on JSON/form-encoded
+  bodies (truthy = match), compiled+validated at rule load.
+- ~~Rate-based rules~~ ✅ — `rate: {count, window_s}` rolling-window cap.
+- ~~Sequences~~ ✅ — `sequence: {fail, pass}` repeating pattern per rule.
 - ~~Header matchers~~ ✅ — `headers: {name: substring}` (AND'd, `""` =
   presence check, same semantics as `resource`).
-- Rate-based rules — N faults per window, not just probability. `[size:M]`
-- Sequences — fail N, pass M, repeat (a chaos script per rule). `[size:M]`
+- Nested body matchers for XML payloads (rest-xml bodies don't parse today).
 - Rule TTL/expiration. `[size:S]`
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
   the request identity; same resource always lands on the same side of p,
