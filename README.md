@@ -1,39 +1,63 @@
-# microburst
+<p align="center">
+  <img src="assets/mascot.svg" alt="Nimbus, the microburst mascot" width="220">
+</p>
 
-[![ci](https://github.com/pingedbrain/microburst/actions/workflows/ci.yml/badge.svg)](https://github.com/pingedbrain/microburst/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/microburst)](https://pypi.org/project/microburst/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<h1 align="center">microburst</h1>
 
-**AWS failure injection proxy.** Point your SDK at microburst instead of your AWS
-endpoint and inject realistic faults — throttling, latency, timeouts,
-connection resets — that the SDK treats exactly like real AWS failures.
+<p align="center">
+  <strong>AWS failure injection that your SDK actually believes.</strong><br>
+  Throttling, latency, timeouts and resets — in the exact wire format AWS uses,<br>
+  so retry, backoff and circuit-breaker code gets exercised for real.
+</p>
 
-Works against **any** upstream: MiniStack, moto, or real AWS.
+<p align="center">
+  <a href="https://github.com/pingedbrain/microburst/actions/workflows/ci.yml"><img src="https://github.com/pingedbrain/microburst/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://pypi.org/project/microburst/"><img src="https://img.shields.io/pypi/v/microburst" alt="PyPI"></a>
+  <img src="https://img.shields.io/pypi/pyversions/microburst" alt="Python">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
-## Why
+---
 
-Generic proxies (Toxiproxy et al.) are protocol-blind: they can cut a
-connection or add delay, but they can't return a
-`ProvisionedThroughputExceededException` in the shape the SDK parses — so your
-retry/backoff/circuit-breaker code never gets exercised for real.
+## The problem
 
-Microburst is **AWS-protocol-aware**:
+Your app handles `ThrottlingException` and retries with backoff — or so you
+hope. The only way to know is to make AWS actually throttle you, and until
+now your options were:
 
-- detects service, operation, region and resource per request (SigV4
-  credential scope, `X-Amz-Target`, `Action=`, REST path patterns from the
-  service model)
-- serializes errors in the wire format of the right protocol
-  (`json` / `query` / `rest-xml` / `rest-json`)
-- picks HTTP statuses from the modeled error shape, and can *sample* a
-  plausible modeled exception for an operation
-- works as a plain HTTP hop — no MITM, no cert install; for real AWS it can
-  re-sign requests with your credentials
+| Option | Catch |
+|---|---|
+| Generic proxies (Toxiproxy et al.) | Protocol-blind. They can drop bytes, but they can't return a `ProvisionedThroughputExceededException` in the envelope your SDK parses — so **they never exercise retry logic**. |
+| Mocks | You test your `except` block, not the SDK. Backoff, jitter, retry budgets: all untested. |
+| Managed chaos services | Operate at infrastructure level (kill instances), not API semantics — and not against your local emulator. |
+| Chaos features inside emulators | You have to adopt *their* whole emulator, sometimes on a paid tier. |
+
+**microburst is the missing piece:** a standalone, protocol-aware proxy that
+works against *any* AWS-compatible endpoint — MiniStack, moto, or real AWS —
+and returns failures the SDK can't tell apart from the real thing.
+
+## Why "protocol-aware" matters
+
+SDKs decide whether to retry by **parsing the error code out of the
+response body**, and whether that code is retryable depends on the status
+too. S3 `SlowDown` at HTTP 400 is a terminal client error; at 503 the SDK
+backs off and retries. Get the shape wrong and you're testing a failure AWS
+never produces.
+
+microburst reads the **botocore service models** — the same definitions the
+SDK uses — so injected errors carry the right code, the right XML/JSON
+envelope, and the right status.
+
+## Install
+
+```bash
+pip install microburst        # or: uvx microburst
+```
 
 ## Quickstart
 
 ```bash
-pip install -e .          # or: uvx microburst (once published)
-microburst --upstream http://localhost:4566 --port 9999
+microburst --upstream http://localhost:4566   # your emulator, e.g. MiniStack
 ```
 
 ```bash
@@ -41,7 +65,7 @@ export AWS_ENDPOINT_URL=http://localhost:9999
 python your_app.py        # all AWS calls now flow through microburst
 ```
 
-Inject a fault at runtime:
+Inject throttling at runtime:
 
 ```bash
 curl -X PATCH localhost:9999/_microburst/rules -d '[
@@ -50,40 +74,41 @@ curl -X PATCH localhost:9999/_microburst/rules -d '[
 ]'
 ```
 
-Or use a preset:
+Or fire a preset:
 
 ```bash
 curl -X POST localhost:9999/_microburst/presets/ddb-throttle
-curl -X POST localhost:9999/_microburst/presets/network-jitter
 ```
 
-See what fired (the part that turns blind chaos into a debugging tool):
+Then watch **exactly what fired** — chaos you can audit:
 
 ```bash
 curl localhost:9999/_microburst/fired
+# → [{"rule": "...", "service": "dynamodb", "operation": "PutItem",
+#     "action": "error:ProvisionedThroughputExceededException", ...}]
 ```
 
 ## Rules
 
 ```yaml
-- service: dynamodb          # sigV4 credential scope name, "*" for all
-  operation: PutItem         # optional; resolved per protocol
+- service: dynamodb          # SigV4 credential-scope name, "*" for all
+  operation: PutItem         # optional; resolved per AWS protocol
   region: us-east-1          # optional
-  resource: orders           # substring of table/bucket/queue/etc.
+  resource: orders           # substring of table/bucket/queue/…
   probability: 0.5           # default 1.0
-  times: 3                   # fire at most N times total (great for
-                             # "fail once, then retry succeeds")
+  times: 3                   # fire at most N times, then pass through
   error:
-    code: SlowDown           # any AWS error code; omit → sample from the
-    status: 503              #   operation's modeled exceptions
+    code: SlowDown           # omit → samples a plausible modeled exception
+    status: 503              # omit → modeled/curated AWS status
     message: "slow down"
   latency: {min: 500, max: 2000}   # ms; or a bare number
-  timeout_ms: 30000               # hold the connection, then 504
-  reset: true                     # abort the TCP connection
+  timeout_ms: 30000                # hold the connection, then 504
+  reset: true                      # abort the TCP connection
 ```
 
-A rule with only `latency` delays the request and still forwards it. The
-first matching rule wins.
+`times: 1` is the sleeper feature — *"fail exactly once, then let the retry
+succeed"* verifies your retry path end-to-end instead of just proving errors
+surface.
 
 ### Presets
 
@@ -95,43 +120,50 @@ first matching rule wins.
 | Method | Path | Effect |
 |---|---|---|
 | GET | `/_microburst/health` | upstream, rule count, requests seen |
-| GET | `/_microburst/rules` | list active rules |
-| POST | `/_microburst/rules` | replace all rules |
-| PATCH | `/_microburst/rules` | append rules |
-| DELETE | `/_microburst/rules` | body `[]` clears all; or list of field matchers |
-| GET | `/_microburst/fired?limit=N` | fault events (rule, service, op, action) |
-| DELETE | `/_microburst/fired` | clear the log |
-| GET | `/_microburst/presets` | list presets |
-| POST | `/_microburst/presets/{name}` | activate a preset |
+| GET · POST · PATCH · DELETE | `/_microburst/rules` | list / replace / append / clear rules |
+| GET · DELETE | `/_microburst/fired` | fault audit log / clear it |
+| GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |
 
-## Config file
-
-```bash
-microburst --config examples/chaos.yml
-```
-
-See `examples/chaos.yml`.
+Load rules at startup with `microburst --config chaos.yml`
+(see `examples/chaos.yml`).
 
 ## Real AWS upstreams
 
 ```bash
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
 microburst --upstream https://dynamodb.us-east-1.amazonaws.com
 ```
 
-Re-signing is enabled automatically for `amazonaws.com` upstreams (use
-`--no-resign` to disable). Useful for game days against staging accounts —
-inject faults into real API traffic without touching app code.
+Requests are re-signed with your credentials automatically for
+`amazonaws.com` upstreams (`--no-resign` to disable). Useful for game days
+against staging accounts.
 
 ## Caveats
 
-- HTTP/1.1 data plane; streaming/event-stream APIs
-  (Kinesis `SubscribeToShard`, S3 Select, Lambda response streaming) pass
-  through but fault injection on frames is not implemented yet.
-- Bodies > 4 MiB are streamed uninspected (resource-level matchers won't see
-  them; service/operation matchers still work for REST services).
+- HTTP/1.1 data plane; event-stream APIs pass through but per-frame fault
+  injection isn't implemented yet.
+- Bodies > 4 MiB are streamed uninspected (resource matchers won't apply;
+  service/operation still do for REST services).
+- The control API is unauthenticated — **bind it to localhost only**.
 - S3 presigned URLs are not specially detected yet.
+
+## Demo
+
+With MiniStack (or any emulator) on `:4566`:
+
+```bash
+python demo.py   # orders pipeline → microburst → MiniStack, scripted fault windows
+```
+
+You'll see DynamoDB puts retry through injected throttling, SQS publishes
+degrade under latency, S3 reads ride out `SlowDown`, and the pipeline
+recover when faults clear — plus the fired-fault ledger at the end.
+
+## Contributing & community
+
+- [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md)
+- This repo adopts [Apache Magpie](https://magpie.apache.org/) for
+  agent-assisted maintainership (see `.apache-magpie.lock`).
 
 ## License
 
-MIT
+[MIT](LICENSE) — go break your own stuff before production does.
