@@ -16,7 +16,7 @@ self-contained and need no deep context.
 | `ec2` | 1 | ✅ (shares query serializer) |
 | `rest-json` | 259 | ✅ path matching + JSON envelope |
 | `rest-xml` | 4 | ✅ path matching + XML envelope (s3, cloudfront, route53, s3control) |
-| `smithy-rpc-v2-cbor` | 18 | ❌ **not implemented** — incl. cloudwatch, gamelift, eventbridgev2, appstream, snowball, comprehendmedical |
+| `smithy-rpc-v2-cbor` | 18 | ✅ CBOR error envelope + `/service/{tp}/operation/{op}` detection — *but note*: migrated clients (e.g. boto3 CloudWatch) actually speak **query-compatible JSON** (`x-amzn-query-mode`), which is handled via wire-protocol detection, not the model's declared protocol |
 
 Service detection: SigV4 scope covers everything signed. Operation detection:
 json/query/ec2 resolve by name; REST resolves by method+path with
@@ -24,15 +24,12 @@ query-marker + required-header disambiguation.
 
 ## Detection (`detection/`)
 
-- **rpc-v2-cbor support** — the biggest single gap: 18 services *including
-  CloudWatch*. Errors are CBOR bodies `{"__type": code, "message": msg}`
-  + `x-amzn-requestid` header + `smithy-protocol: rpc-v2-cbor`; needs a
-  ~30-line minimal CBOR encoder (map + strings). `[size:M]`
-- **Scope aliases** — 9 signing names don't resolve to a service today:
-  `execute-api`→apigatewaymanagementapi, `elasticfilesystem`→efs,
-  `states`→stepfunctions, `mturk-requester`→mturk, `mobiletargeting`→pinpoint,
-  `models-v2-lex`→lexv2-runtime, `iotdevice`→iot, `awstransfer`→transfer,
-  `aws-migration-hub`→mgh. `[good-first-issue]`
+- ~~rpc-v2-cbor support~~ ✅ + ~~scope aliases~~ ✅ (50 derived empirically
+  from resolved boto3 signing names + 7 curated ambiguous picks +
+  `_TARGET_PREFIXES` for exact service resolution)
+- Wire-protocol detection ✅ — the observed request protocol wins over the
+  model's declared protocol (query-compat JSON for migrated services).
+  Remaining: true CBOR clients (non-botocore SDKs) still get CBOR errors.
 - Presigned URL detection — `X-Amz-Credential` in the query string carries
   the same scope fields as the Authorization header. `[good-first-issue]`
 - Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
@@ -47,11 +44,13 @@ query-marker + required-header disambiguation.
 
 ## Protocols (`protocols/`)
 
-- `rpc-v2-cbor` serializer (pairs with the detection item above). `[size:M]`
+- ~~`rpc-v2-cbor` serializer~~ ✅ — flat-map CBOR encoder +
+  `smithy-protocol`/`x-amzn-requestid` headers.
+- ~~Query-compat error header~~ ✅ — `x-amzn-query-error: Code;Sender` sent
+  when the request carries `x-amzn-query-mode` (matches real AWS behavior).
 - `aws-json-1.1` variant detection + envelope differences. `[good-first-issue]`
 - `__type` namespacing: emit `prefix#Code` vs bare `Code` where the service
   expects it. `[size:S]`
-- Query-compat error header for cbor (`x-amzn-query-error: Code;Type`). `[size:S]`
 - Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
   DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
 

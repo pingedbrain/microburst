@@ -8,11 +8,23 @@ REST path matching against the service model.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from urllib.parse import parse_qsl
 
 from microburst.detection.rest import match_rest_operation
 from microburst.models import get_protocol
+
+# rpc-v2-cbor services address ops as /service/{targetPrefix}/operation/{Op}.
+_RPCV2_PATH = re.compile(r"^/service/([^/]+)/operation/([^/]+)$")
+
+
+def parse_rpcv2_path(path: str) -> tuple[str, str] | None:
+    """(targetPrefix, operation) from an rpc-v2-cbor URL path, or None."""
+    m = _RPCV2_PATH.match(path)
+    if m:
+        return m.group(1), m.group(2)
+    return None
 
 
 def resolve_operation(
@@ -23,6 +35,10 @@ def resolve_operation(
     query: Mapping[str, str],
     body: bytes | None,
 ) -> str | None:
+    rpcv2 = parse_rpcv2_path(path)
+    if rpcv2:
+        return rpcv2[1]
+
     if service is None:
         return None
 

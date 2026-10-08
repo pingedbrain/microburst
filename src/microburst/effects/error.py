@@ -16,5 +16,7 @@ async def apply(ctx, decision: Decision) -> web.Response | None:
         decision.error.code or "InternalError",
         decision.error.message or "",
         decision.error.status,
+        protocol=ctx.protocol,
+        query_compat=ctx.query_compat,
     )
     return web.Response(status=status, headers=headers, body=body)

@@ -23,7 +23,7 @@ extension seams:
   detectors; `__init__` exposes `detect()` and `should_buffer()`.
 - `src/microburst/protocols/` — error-serializer registry
   (`@register_serializer` per protocol: json, query+ec2, rest-xml,
-  rest-json). `render_error()` is the facade.
+  rest-json, smithy-rpc-v2-cbor). `render_error()` is the facade.
 - `src/microburst/effects/` — composable stages in fixed order
   (latency → reset → timeout → error), one file per effect.
 - `src/microburst/rules.py` — rule matching engine + presets.
@@ -46,6 +46,11 @@ extension seams:
   terminal at 400 but retried at 503; `ProvisionedThroughputExceededException`
   retries at 400. Prefer `httpStatusCode` from the service model, then the
   curated map in `models.py`, then a protocol-aware default.
+- **The wire protocol is the observed protocol, not the model's.** Migrated
+  services (CloudWatch etc.) declare `smithy-rpc-v2-cbor` but clients like
+  boto3 send query-compatible JSON (`x-amzn-query-mode` + `X-Amz-Target` +
+  JSON body). `RequestContext.protocol` records what the request actually
+  speaks — fault responses must match that, never the model alone.
 - **Authority order for AWS facts:** botocore service model > AWS docs >
   observed emulator behavior. Label which one you used in code comments and
   commit messages. Never claim "validated against real AWS" unless it was.
@@ -72,8 +77,9 @@ python demo.py              # end-to-end demo (needs MiniStack on :4566)
 ```
 
 CI runs pytest on Python 3.10–3.13 and blocks merge. Releases publish to
-PyPI via trusted publishing (`.github/workflows/release.yml`); bump
-`version` in `pyproject.toml` and cut a GitHub release.
+PyPI via trusted publishing (`.github/workflows/release.yml`); versions are
+tag-derived (`hatch-vcs`) — update CHANGELOG, tag `vX.Y.Z`, cut a GitHub
+release (see CONTRIBUTING.md).
 
 ## This repo adopts Apache Magpie
 

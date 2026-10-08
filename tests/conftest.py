@@ -64,6 +64,20 @@ class Upstub:
             }
         )
 
+        if request.headers.get("smithy-protocol") == "rpc-v2-cbor" or request.path.startswith(
+            "/service/"
+        ):
+            # rpc-v2-cbor: empty map is a valid success body
+            return web.Response(
+                status=200,
+                content_type="application/cbor",
+                body=b"\xa0",
+                headers={
+                    "smithy-protocol": "rpc-v2-cbor",
+                    "x-amzn-requestid": "stub-req-id",
+                },
+            )
+
         target = request.headers.get("X-Amz-Target", "")
         if target:
             # JSON protocol (dynamodb, kinesis, sqs on newer botocore, ...)

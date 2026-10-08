@@ -38,6 +38,7 @@ def get_serializer(protocol: str | None) -> Callable | None:
 
 # Importing the package populates the registry.
 from microburst.protocols import (
+    cbor,  # noqa: F401
     json_rpc,  # noqa: F401
     query,  # noqa: F401
     rest_json,  # noqa: F401
@@ -56,20 +57,35 @@ def render_error(
     code: str,
     message: str = "",
     status: int | None = None,
+    protocol: str | None = None,
+    query_compat: bool = False,
 ) -> tuple[int, dict[str, str], bytes]:
-    """Serialize an AWS-looking error. Returns (status, headers, body)."""
-    protocol = get_protocol(service) if service else None
+    """Serialize an AWS-looking error. Returns (status, headers, body).
+
+    ``protocol`` is the wire protocol observed on the request — it wins over
+    the service model's declared protocol (migrated services like CloudWatch
+    accept query-compatible JSON even though the model says rpc-v2-cbor).
+    ``query_compat`` adds the ``x-amzn-query-error`` header AWS sends to
+    query-compatible clients, which drives the SDK's parsed error code.
+    """
+    protocol = protocol or (get_protocol(service) if service else None)
     if status is None:
         if service is None:
             status = 503
         else:
-            # json/query services conventionally serve client faults at 400;
+            # RPC-style services conventionally serve client faults at 400;
             # rest protocols lean on 5xx for transient errors.
-            default = 400 if protocol in ("json", "query", "ec2") else 503
+            default = (
+                400
+                if protocol in ("json", "query", "ec2", "smithy-rpc-v2-cbor")
+                else 503
+            )
             status = error_http_status(service, code, default=default)
     if not message:
         message = code
 
     renderer = get_serializer(protocol) or _DEFAULT_RENDERER
     headers, body = renderer(code, message, _request_id())
+    if query_compat:
+        headers["x-amzn-query-error"] = f"{code};Sender"
     return status, headers, body

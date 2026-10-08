@@ -31,6 +31,13 @@ class RequestContext:
     region: str | None = None
     resource: str | None = None
     access_key: str | None = None
+    # Wire protocol actually observed on the request. Differs from the
+    # service model's declared protocol for migrated services — e.g.
+    # CloudWatch's model says smithy-rpc-v2-cbor but boto3 sends
+    # query-compatible JSON (x-amzn-query-mode). Fault responses must
+    # match the request's protocol, not the model's.
+    protocol: str | None = None
+    query_compat: bool = False
 
     # Rule decision (filled by the engine before effects run)
     decision: Decision | None = None
