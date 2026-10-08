@@ -110,6 +110,10 @@ query-marker + required-header disambiguation.
   doesn't speak h2 anyway).
 - ~~Response-side faults~~ ✅ — `response:` block (truncate/abort/corrupt/
   bandwidth) mutates the upstream response while streaming.
+- ~~Event-stream faults~~ ✅ — `response.event_error` splices a
+  well-formed `:error` frame (valid CRCs) into
+  `application/vnd.amazon.eventstream` bodies after N frames — mid-stream
+  errors for Kinesis SubscribeToShard, S3 Select, etc.
 - ~~Keep-alive / connection pooling fidelity~~ ✅ — `test_keepalive.py`:
   pooled clients reuse one upstream connection through the proxy, injected
   errors keep the downstream socket alive (no `Connection: close`), and
@@ -143,7 +147,7 @@ query-marker + required-header disambiguation.
   namespaced `AWS.SimpleQueueService.*` code all three SDKs read from
   `x-amzn-query-error`. It also found a real detection bug (JS S3 sends
   `HEAD /bucket/` — greedy `{Key+}` was swallowing the empty key segment).
-  aws-sdk-java remains as a CI-only cell (no local toolchain).
+  Runs in CI on every push including an aws-sdk-java-v2 cell.
 - ~~REST collision sweep~~ ✅ — `detection/sweep.py` synthesizes the minimal
   request each of the ~10.4k REST ops declares and asserts the matcher
   resolves it back to itself; `fidelity/rest_sweep.json` is the committed
@@ -169,6 +173,12 @@ query-marker + required-header disambiguation.
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`
+- ~~Cassette record/replay~~ ✅ — `--record DIR` captures upstream
+  responses keyed by method+path+body; `--replay DIR` serves them
+  upstream-free while rules still inject faults.
+- ~~`microburst fidelity` subcommand~~ ✅ — the live-AWS diff harness
+  ships in the wheel (`capture`/`report`, `--dir`); `tools/live_fidelity.py`
+  is a thin repo wrapper.
 
 ## Explicitly out of scope (for now)
 

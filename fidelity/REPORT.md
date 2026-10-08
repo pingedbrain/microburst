@@ -1,6 +1,6 @@
 # Live-AWS fidelity report
 
-Captured 2026-10-08 16:11 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
 
 | service | operation | error code | AWS status | ours | AWS CT | ours | verdict |
 |---|---|---|---|---|---|---|---|
@@ -33,4 +33,4 @@ Captured 2026-10-08 16:11 UTC against real AWS (us-east-1). Each probe targets a
 | stepfunctions | describe_state_machine | `AccessDeniedException` | 400 | 400 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
 | wafv2 | get_web_acl | `ValidationException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 
-**28/28 probes: status + parsed Error.Code match.**
+**28/28 probes: status + parsed Error.Code + Content-Type match.**

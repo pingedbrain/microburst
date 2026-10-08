@@ -8,6 +8,21 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **Cassette record/replay** — `--record DIR` captures every upstream
+  response keyed by `sha256(method + path + query + body)`;
+  `--replay DIR` serves them without contacting upstream while rules keep
+  injecting faults on top. Deterministic real traffic, chaos on top.
+- **Event-stream faults** — `response.event_error` splices a well-formed
+  `:error` frame (valid CRCs, `:error-code`/`:error-message` headers)
+  into `application/vnd.amazon.eventstream` responses after N frames —
+  mid-stream errors for Kinesis SubscribeToShard, S3 Select, etc.
+- **`microburst fidelity` subcommand** — the live-AWS diff harness now
+  ships in the wheel: `fidelity capture` (needs boto3 + AWS credentials)
+  and `fidelity report`, writing to `--dir` (default `./fidelity`).
+- **SDK matrix runs in CI** — a `sdk-matrix` job exercises boto3,
+  aws-sdk-js-v3, aws-sdk-go-v2, and aws-sdk-java-v2 against a live
+  microburst on every push.
+
 - **Multi-SDK matrix** — `tools/sdk-matrix/` runs real boto3, aws-sdk-js-v3,
   and aws-sdk-go-v2 clients against a live microburst and verifies the
   *parsed* error code, HTTP status, and retry attempts (measured

@@ -102,7 +102,9 @@ def _fired(base: str) -> list[dict]:
         return []
 
 
-def _sdk_clients(node: str | None, go: str | None) -> dict[str, dict]:
+def _sdk_clients(
+    node: str | None, go: str | None, mvn: str | None,
+) -> dict[str, dict]:
     clients = {
         "boto3": {
             "cmd": [sys.executable, str(HERE / "clients" / "py_client.py")],
@@ -119,13 +121,18 @@ def _sdk_clients(node: str | None, go: str | None) -> dict[str, dict]:
             "cmd": [go, "run", "."],
             "cwd": HERE / "clients",
         }
+    if mvn:
+        clients["java-v2"] = {
+            "cmd": [mvn, "-q", "-B", "-f", "java", "compile", "exec:java"],
+            "cwd": HERE / "clients",
+        }
     return clients
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=9911)
-    ap.add_argument("--sdk", default="boto3,js-v3,go-v2")
+    ap.add_argument("--sdk", default="boto3,js-v3,go-v2,java-v2")
     ap.add_argument("--out", default=str(HERE / "results.json"))
     args = ap.parse_args()
 
@@ -136,7 +143,8 @@ def main() -> int:
     go = shutil.which("go") or next(
         (str(p) for p in sorted(Path.home().glob(".gvm/gos/*/bin/go"))
          if p.exists()), None)
-    clients = _sdk_clients(node, go)
+    mvn = shutil.which("mvn")
+    clients = _sdk_clients(node, go, mvn)
     want = {s.strip() for s in args.sdk.split(",")}
     missing = want - set(clients)
     if missing:

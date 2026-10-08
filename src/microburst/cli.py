@@ -55,8 +55,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="use HTTP/2 for the upstream connection (needs microburst[h2])",
     )
     parser.add_argument(
-        "command", nargs="?", choices=["dashboard"], default=None,
-        help="'dashboard' launches the TUI (needs microburst[tui])",
+        "--record", metavar="DIR", default=None,
+        help="record upstream responses into DIR (cassette mode)",
+    )
+    parser.add_argument(
+        "--replay", metavar="DIR", default=None,
+        help="serve responses from cassette DIR without contacting upstream",
+    )
+    parser.add_argument(
+        "command", nargs="?", choices=["dashboard", "fidelity"], default=None,
+        help="'dashboard' launches the TUI (needs microburst[tui]); "
+        "'fidelity capture|report' diffs live-AWS wire responses",
     )
     parser.add_argument(
         "--connect", default=None,
@@ -67,6 +76,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "fidelity":
+        # `fidelity` owns its own parser — its flags (--services, --dir)
+        # don't belong to the proxy CLI surface.
+        from microburst.fidelity import fidelity_main
+
+        return fidelity_main(argv[1:])
+
     args = build_parser().parse_args(argv)
 
     logging.basicConfig(
@@ -97,8 +114,18 @@ def main(argv: list[str] | None = None) -> int:
     else:
         resign = None  # auto
 
+    cassette = None
+    if args.record or args.replay:
+        from microburst.cassette import Cassette
+
+        cassette = Cassette(
+            args.record or args.replay,
+            "record" if args.record else "replay",
+        )
+
     microburst = Microburst(
-        upstream, rules=rules, resign=resign, http2=args.http2
+        upstream, rules=rules, resign=resign, http2=args.http2,
+        cassette=cassette,
     )
     app = make_app(microburst)
 

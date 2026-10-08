@@ -175,6 +175,10 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
                                    # mid-stream (or abort_bytes: N)
     corrupt_bytes: 16              # flip N bytes — 200 OK, wrong payload
     bandwidth_kbps: 64             # cap downstream throughput
+    event_error:                   # eventstream (Kinesis SubscribeToShard,
+      code: ThrottlingException    #  S3 Select): splice a well-formed
+      message: "slowed mid-stream" #  :error frame mid-stream — terminal
+      after_frames: 3              #  for the stream, after N real frames
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
@@ -211,6 +215,22 @@ Requests are re-signed with your credentials automatically for
 against staging accounts. Add `--http2` (needs `microburst[h2]`) to talk
 HTTP/2 to the upstream — AWS endpoints negotiate it via ALPN.
 
+## Cassettes: record & replay
+
+Record real upstream traffic once, replay it forever — with rules still
+injecting faults on top:
+
+```bash
+microburst --upstream https://dynamodb.us-east-1.amazonaws.com --record cass/
+microburst --replay cass/ --config chaos.yml   # no upstream contact
+```
+
+Entries are keyed by `sha256(method + path + query + body)` — headers are
+excluded so signatures/timestamps don't matter. Replays are byte-exact
+(status, headers, body); response faults and injected errors apply
+normally, so a replayed stream is deterministic underneath and chaotic on
+top.
+
 ## Fidelity vs real AWS
 
 Error envelopes aren't guessed — they're diffed against live AWS captures.
@@ -219,8 +239,8 @@ Error envelopes aren't guessed — they're diffed against live AWS captures.
 profile/env) and diffs them against what `render_error` produces:
 
 ```bash
-AWS_PROFILE=you python tools/live_fidelity.py capture   # raw wire captures
-python tools/live_fidelity.py report                    # → fidelity/REPORT.md
+AWS_PROFILE=you microburst fidelity capture   # raw wire captures
+microburst fidelity report                    # → fidelity/REPORT.md
 ```
 
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
@@ -244,8 +264,9 @@ against real AWS).
 ## Caveats
 
 - Downstream is HTTP/1.1 (AWS SDKs don't speak h2 to the client anyway);
-  upstream can be HTTP/2 with `--http2`. Event-stream APIs pass through
-  but per-frame fault injection isn't implemented yet.
+  upstream can be HTTP/2 with `--http2`. Event-stream APIs support
+  mid-stream `:error` frame injection via `response.event_error` —
+  arbitrary per-payload mutation isn't implemented.
 - Bodies > 4 MiB are streamed uninspected (resource matchers won't apply;
   service/operation still do for REST services).
 - The control API is unauthenticated — **bind it to localhost only**.

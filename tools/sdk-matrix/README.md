@@ -50,5 +50,9 @@ cd tools/sdk-matrix/clients && go mod download
 ```
 
 Requires: Python venv with microburst installed, Node ≥18 (SDK v3),
-Go ≥1.21 (SDK v2). Toolchains absent → those cells are skipped with a
-warning. Results land in `results.json`.
+Go ≥1.21 (SDK v2), JDK+Maven (SDK Java v2 — `clients/java/`).
+Toolchains absent → those cells are skipped with a warning.
+Results land in `results.json`.
+
+CI runs all four SDKs on every push (`sdk-matrix` job in
+`.github/workflows/ci.yml`).

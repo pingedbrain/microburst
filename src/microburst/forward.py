@@ -22,6 +22,9 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
+from microburst import eventstream
+from microburst.cassette import Cassette, entry_response_body
+
 if TYPE_CHECKING:
     import httpx
 else:
@@ -145,6 +148,9 @@ class ResponseFault:
       connection mid-stream (client sees an incomplete read).
     - ``corrupt_bytes``: flip that many bytes in the buffered body.
     - ``bandwidth_kbps``: cap downstream throughput of the body stream.
+    - ``event_error_*``: splice a well-formed event-stream ``:error``
+      frame mid-stream (Kinesis SubscribeToShard, S3 Select, ...) after
+      ``event_error_after`` upstream frames.
     """
     truncate_bytes: int | None = None
     truncate_frac: float | None = None
@@ -152,6 +158,9 @@ class ResponseFault:
     abort_frac: float | None = None
     corrupt_bytes: int = 0
     bandwidth_kbps: float | None = None
+    event_error_code: str | None = None
+    event_error_message: str | None = None
+    event_error_after: int = 3
 
     def resolve(self, content_length: int | None) -> None:
         """Turn frac fields into absolute byte counts once the upstream
@@ -173,10 +182,12 @@ class Upstream:
     speak H2 anyway.
     """
 
-    def __init__(self, base_url: str, resign: bool = False, http2: bool = False):
+    def __init__(self, base_url: str, resign: bool = False,
+                 http2: bool = False, cassette: Cassette | None = None):
         self.base_url = base_url.rstrip("/")
         self.resign = resign
         self.http2 = http2
+        self.cassette = cassette
         self.session: aiohttp.ClientSession | None = None
         self.hx: httpx.AsyncClient | None = None  # set when http2
 
@@ -230,15 +241,41 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None = None,
     ) -> web.StreamResponse:
+        cass_key = None
+        if self.cassette is not None:
+            cass_key = Cassette.key_for(
+                request.method, request.rel_url.raw_path_qs, body
+            )
+            if self.cassette.mode == "replay":
+                entry = self.cassette.get(cass_key)
+                if entry is None:
+                    return web.Response(
+                        status=503,
+                        text="microburst: no cassette entry for "
+                        f"{request.method} {request.rel_url.raw_path_qs} "
+                        "(record with --record first)",
+                    )
+                entry_body = entry_response_body(entry)
+                if mutator is not None:
+                    mutator.resolve(len(entry_body))
+
+                async def once():
+                    yield entry_body
+
+                return await _stream_to_client(
+                    request, entry["status"], entry["headers"], mutator,
+                    once(),
+                )
         if self.hx is not None:
-            return await self._relay_httpx(request, body, mutator)
-        return await self._relay_aiohttp(request, body, mutator)
+            return await self._relay_httpx(request, body, mutator, cass_key)
+        return await self._relay_aiohttp(request, body, mutator, cass_key)
 
     async def _relay_httpx(
         self,
         request: web.Request,
         body: bytes | None,
         mutator: ResponseFault | None,
+        cass_key: str | None,
     ) -> web.StreamResponse:
         assert self.hx is not None  # relay() only routes here when set
         url = self.base_url + request.rel_url.raw_path_qs
@@ -282,6 +319,10 @@ class Upstream:
         # aiter_raw: no decoding — we forward bytes verbatim, the client
         # owns Content-Encoding semantics
         chunks = upstream.aiter_raw(chunk_size=chunk_size)
+        if cass_key is not None and self.cassette is not None:
+            chunks = self.cassette.tee(
+                chunks, cass_key, upstream.status_code, upstream.headers
+            )
         return await _stream_to_client(
             request,
             upstream.status_code,
@@ -295,6 +336,7 @@ class Upstream:
         request: web.Request,
         body: bytes | None,
         mutator: ResponseFault | None,
+        cass_key: str | None,
     ) -> web.StreamResponse:
         assert self.session is not None
         url = self.base_url + request.rel_url.raw_path_qs
@@ -338,6 +380,10 @@ class Upstream:
             if chunk_size
             else upstream.content.iter_any()
         )
+        if cass_key is not None and self.cassette is not None:
+            chunks = self.cassette.tee(
+                chunks, cass_key, upstream.status, upstream.headers
+            )
         return await _stream_to_client(
             request, upstream.status, upstream.headers, mutator, chunks
         )
@@ -356,6 +402,7 @@ async def _stream_to_client(
         k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP
     }
 
+    inject_frame = None
     if mutator is not None:
         cl = headers.get("content-length")
         mutator.resolve(int(cl) if cl else None)
@@ -365,9 +412,26 @@ async def _stream_to_client(
         # wrong bytes, the nastiest outcome.
         if mutator.truncate_bytes is not None:
             resp_headers.pop("Content-Length", None)
+        if mutator.event_error_code and str(
+            headers.get("content-type", "")
+        ).startswith(eventstream.CONTENT_TYPE):
+            # the stream grows by a frame — Content-Length no longer
+            # describes it (streams usually lack one anyway)
+            resp_headers.pop("Content-Length", None)
+            inject_frame = eventstream.build_error_frame(
+                mutator.event_error_code,
+                mutator.event_error_message or mutator.event_error_code,
+            )
 
     resp = web.StreamResponse(status=status, headers=resp_headers)
     await resp.prepare(request)
+
+    if inject_frame is not None:
+        # inject_frame is only set when mutator has event_error_code
+        assert mutator is not None
+        chunks = eventstream.splice_after_frames(
+            chunks, mutator.event_error_after, inject_frame
+        )
 
     if mutator is not None and mutator.corrupt_bytes:
         # corrupt needs the whole buffered body — same length, wrong bytes

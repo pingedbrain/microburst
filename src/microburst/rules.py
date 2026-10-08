@@ -491,7 +491,15 @@ def _response_fault(spec: dict | None) -> ResponseFault | None:
         abort_frac=_float_or_none(spec.get("abort_frac")),
         corrupt_bytes=int(spec.get("corrupt_bytes", 0)),
         bandwidth_kbps=_float_or_none(spec.get("bandwidth_kbps")),
+        event_error_code=_event_error(spec).get("code"),
+        event_error_message=_event_error(spec).get("message"),
+        event_error_after=int(_event_error(spec).get("after_frames", 3)),
     )
+
+
+def _event_error(spec: dict) -> dict:
+    ee = spec.get("event_error")
+    return ee if isinstance(ee, dict) else {}
 
 
 def _int_or_none(v):
@@ -522,6 +530,11 @@ def describe(decision: Decision) -> str:
             parts.append(f"response:corrupt:{rf.corrupt_bytes}B")
         if rf.bandwidth_kbps:
             parts.append(f"response:{rf.bandwidth_kbps:.0f}kbps")
+        if rf.event_error_code:
+            parts.append(
+                f"response:event_error:{rf.event_error_code}"
+                f"@{rf.event_error_after}"
+            )
     return "+".join(parts) or "match"
 
 

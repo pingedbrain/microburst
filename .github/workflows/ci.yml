@@ -27,3 +27,31 @@ jobs:
         run: .venv/bin/python -m pyright
       - name: Test
         run: .venv/bin/python -m pytest tests/ -q
+
+  sdk-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install microburst
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -e .
+      - name: Install SDK clients
+        run: |
+          cd tools/sdk-matrix && npm ci
+          cd clients && go mod download && mvn -q -B -f java dependency:resolve
+      - name: Run matrix
+        run: .venv/bin/python tools/sdk-matrix/run.py

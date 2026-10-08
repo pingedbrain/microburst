@@ -28,11 +28,12 @@ logger = logging.getLogger("microburst")
 class Microburst:
     def __init__(self, upstream: str, rules: list[dict] | None = None,
                  resign: bool | None = None, fired_capacity: int = 2000,
-                 http2: bool = False):
+                 http2: bool = False, cassette=None):
         self.upstream = Upstream(
             upstream,
             resign=(".amazonaws.com" in upstream) if resign is None else resign,
             http2=http2,
+            cassette=cassette,
         )
         self.engine = RuleEngine()
         if rules:
@@ -69,8 +70,11 @@ class Microburst:
         # REST services; body-dependent ops buffer below if needed.
         prelim = detect(request.headers, request.method, path, query, None)
         body = None
-        if request.can_read_body and should_buffer(
-            prelim.service, prelim.operation, content_length
+        if request.can_read_body and (
+            should_buffer(prelim.service, prelim.operation, content_length)
+            # cassette keys include the body — always buffer when one is
+            # active (json services all POST to /; the body discriminates)
+            or self.upstream.cassette is not None
         ):
             body = await request.read()
 
