@@ -257,6 +257,10 @@ profile/env) and diffs them against what `render_error` produces:
 AWS_PROFILE=you microburst fidelity capture   # raw wire captures
 microburst fidelity report                    # → fidelity/REPORT.md
 microburst fidelity snapshot                  # model digests (no creds)
+
+# emulator conformance — same probes, diffed against the AWS goldens
+microburst fidelity capture --endpoint-url http://localhost:4566 --dir ms/
+microburst fidelity conform --emu ms/ --aws fidelity/   # → CONFORM.md
 ```
 
 The evidence stays fresh without anyone owning AWS credentials:

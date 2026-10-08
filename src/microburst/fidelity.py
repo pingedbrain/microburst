@@ -80,8 +80,13 @@ PROBES: list[tuple[str, str, dict[str, Any], str]] = [
 ]
 
 
-def capture(services: list[str] | None, out_dir: Path) -> int:
-    """Run probes against real AWS, dumping raw wire responses."""
+def capture(
+    services: list[str] | None,
+    out_dir: Path,
+    endpoint_url: str | None = None,
+) -> int:
+    """Run probes against real AWS — or any emulator endpoint when
+    ``endpoint_url`` is given — dumping raw wire responses."""
     try:
         import boto3
         import botocore.httpsession
@@ -122,13 +127,21 @@ def capture(services: list[str] | None, out_dir: Path) -> int:
     except Exception:  # noqa: BLE001
         account_id = None
 
+    # Emulators don't validate credentials — give boto3 dummies so it
+    # still signs requests the way it would against real AWS.
+    client_kwargs: dict = {}
+    if endpoint_url:
+        client_kwargs["endpoint_url"] = endpoint_url
+
     capture_dir.mkdir(parents=True, exist_ok=True)
     wanted = {s for s in services} if services else None
     n_ok = 0
     for service, method, kwargs, family in PROBES:
         if wanted and service not in wanted:
             continue
-        client = boto3.client(service, region_name="us-east-1")
+        client = boto3.client(
+            service, region_name="us-east-1", **client_kwargs
+        )
         try:
             getattr(client, method)(**kwargs)
             print(f"  {service}.{method}: no error?? probe returned success")
@@ -405,6 +418,104 @@ def report(out_dir: Path) -> int:
     return 0 if n_pass == len(rows) and rows else 1
 
 
+def _parse_capture(cap: dict, session) -> tuple[Any, Any]:
+    """(parsed_response, protocol) for a raw capture — real AWS bytes or
+    emulator bytes, treated identically. Wire evidence decides protocol:
+    query-compat headers win over the model's declared protocol."""
+    from botocore.parsers import create_parser
+
+    svc = cap.get("model_service") or cap["service"]
+    protocol = session.get_service_model(svc).protocol
+    ct = cap["headers"].get("Content-Type", "")
+    if "x-amzn-query-error" in cap["headers"] or (
+        ct.startswith("application/x-amz-json")
+        and protocol == "smithy-rpc-v2-cbor"
+    ):
+        protocol = "json"
+    parser = create_parser(protocol)
+    body = cap.get("body") or ""
+    parsed = parser.parse(
+        {
+            "status_code": cap["status"],
+            "headers": {
+                k.lower(): v for k, v in cap["headers"].items()
+            },
+            "body": body.encode() if body else b"",
+        },
+        None,
+    )
+    return parsed, protocol
+
+
+def conform(aws_dir: Path, emu_dir: Path) -> int:
+    """Diff an emulator's captures against the real-AWS goldens.
+
+    For every probe present in both trees we compare what an SDK would
+    see: HTTP status, Content-Type, and the parsed ``Error.Code`` — the
+    trio that drives retry classification. Body top-level keys and
+    request-id header presence are reported as secondary signals.
+    Writes ``CONFORM.md`` next to the emulator captures.
+    """
+    from botocore.session import Session
+
+    session = Session()
+    aws_caps = {
+        p.name: json.loads(p.read_text())
+        for p in sorted((aws_dir / "captures").glob("*.json"))
+    }
+    emu_caps = {
+        p.name: json.loads(p.read_text())
+        for p in sorted((emu_dir / "captures").glob("*.json"))
+    }
+    rows = []
+    for name, aws in aws_caps.items():
+        emu = emu_caps.get(name)
+        if emu is None:
+            rows.append((name, "—", "missing", "—", "—", "—", "⬜"))
+            continue
+        aws_parsed, _ = _parse_capture(aws, session)
+        emu_parsed, _ = _parse_capture(emu, session)
+        aws_code = (aws_parsed.get("Error") or {}).get("Code")
+        emu_code = (emu_parsed.get("Error") or {}).get("Code")
+        aws_ct = aws["headers"].get("Content-Type", "").split(";")[0]
+        emu_ct = emu["headers"].get("Content-Type", "").split(";")[0]
+        ok = (
+            aws["status"] == emu["status"]
+            and aws_code == emu_code
+            and aws_ct == emu_ct
+        )
+        rows.append((
+            name, aws["status"], emu["status"], aws_code, emu_code,
+            f"{aws_ct} → {emu_ct}" if aws_ct != emu_ct else emu_ct,
+            "✅" if ok else "❌",
+        ))
+
+    n_pass = sum(1 for r in rows if r[-1] == "✅")
+    lines = [
+        "# Conformance report — emulator vs real AWS", "",
+        ("Diffs each probe's emulator response against the committed "
+         "real-AWS capture on the fields an SDK actually reads: HTTP "
+         "status, parsed `Error.Code`, Content-Type."),
+        "",
+        "| probe | AWS status | emu status | AWS code | emu code | CT | |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for name, rs, es, rc, ec, ct, v in rows:
+        lines.append(
+            f"| {name} | {rs} | {es} | `{rc}` | `{ec}` | {ct} | {v} |"
+        )
+    lines += [
+        "",
+        (f"**{n_pass}/{len(rows)} probes conform "
+         "(status + parsed code + Content-Type).**"),
+        "",
+    ]
+    out = emu_dir / "CONFORM.md"
+    out.write_text("\n".join(lines))
+    print(f"conformance → {out}  ({n_pass}/{len(rows)} conform)")
+    return 0 if n_pass == len(rows) and rows else 1
+
+
 def fidelity_main(argv: list[str]) -> int:
     """``microburst fidelity`` subcommand entry point."""
     import argparse
@@ -415,7 +526,10 @@ def fidelity_main(argv: list[str]) -> int:
     )
     ap.add_argument(
         "command",
-        choices=["capture", "report", "snapshot", "backfill-provenance"],
+        choices=[
+            "capture", "report", "snapshot", "backfill-provenance",
+            "conform",
+        ],
     )
     ap.add_argument(
         "--services", default=None,
@@ -425,6 +539,19 @@ def fidelity_main(argv: list[str]) -> int:
         "--dir", "--out", dest="out_dir", default=str(DEFAULT_DIR),
         help="capture/report directory (default: ./fidelity)",
     )
+    ap.add_argument(
+        "--endpoint-url", default=None,
+        help="capture against this endpoint instead of real AWS "
+             "(emulator conformance)",
+    )
+    ap.add_argument(
+        "--aws", dest="aws_dir", default=None,
+        help="real-AWS captures dir for conform (default: <dir>)",
+    )
+    ap.add_argument(
+        "--emu", dest="emu_dir", default=None,
+        help="emulator captures dir for conform",
+    )
     args = ap.parse_args(argv)
     out_dir = Path(args.out_dir)
     services = (
@@ -432,9 +559,13 @@ def fidelity_main(argv: list[str]) -> int:
         if args.services else None
     )
     if args.command == "capture":
-        return capture(services, out_dir)
+        return capture(services, out_dir, args.endpoint_url)
     if args.command == "report":
         return report(out_dir)
     if args.command == "snapshot":
         return model_snapshot(out_dir)
+    if args.command == "conform":
+        emu = Path(args.emu_dir) if args.emu_dir else out_dir
+        aws = Path(args.aws_dir) if args.aws_dir else DEFAULT_DIR
+        return conform(aws, emu)
     return backfill_provenance(out_dir)

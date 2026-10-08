@@ -4,6 +4,19 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Emulator conformance** — `microburst fidelity capture --endpoint-url
+  <emulator>` runs the same probes against any AWS-compatible endpoint,
+  and `microburst fidelity conform --emu DIR --aws DIR` diffs them
+  against the committed real-AWS goldens on the fields SDKs read:
+  status, parsed `Error.Code`, Content-Type. Emulators can gate on
+  byte-level AWS similarity with zero AWS credentials — first run
+  against MiniStack found 21 divergences (content-type drift, codes
+  that don't parse, missing ops).
+
 ## [0.6.0] - 2026-10-08
 
 ### Added
