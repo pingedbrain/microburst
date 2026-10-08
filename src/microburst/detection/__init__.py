@@ -43,6 +43,12 @@ _STREAMING_OPS = {
 
 _BUFFER_LIMIT = 4 * 1024 * 1024
 
+# Services whose real endpoint embeds a deployment stage as the first
+# path segment — `{api-id}.execute-api.{region}.amazonaws.com/{stage}` —
+# so the modeled route (e.g. `/@connections/{connectionId}`) sits one
+# segment deeper. If detection with the full path fails, retry stripped.
+_STAGE_PREFIX_SERVICES = {"apigatewaymanagementapi"}
+
 
 def should_buffer(
     service: str | None,
@@ -128,6 +134,19 @@ def detect(
     ctx.operation = resolve_operation(
         service, headers, method, match_path, query, body
     )
+    if (
+        ctx.operation is None
+        and service in _STAGE_PREFIX_SERVICES
+        and match_path.count("/") >= 2
+    ):
+        ctx.operation = resolve_operation(
+            service,
+            headers,
+            method,
+            "/" + match_path.lstrip("/").split("/", 1)[1],
+            query,
+            body,
+        )
     ctx.resource = (
         resource_hint(service, ctx.operation, match_path, body) or label
     )

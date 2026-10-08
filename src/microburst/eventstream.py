@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import struct
 import zlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
 
 CONTENT_TYPE = "application/vnd.amazon.eventstream"
 
@@ -56,6 +57,64 @@ def build_error_frame(code: str, message: str) -> bytes:
     })
 
 
+def _repayload(frame: bytes, payload: bytes) -> bytes:
+    """Rebuild a frame keeping its header block verbatim, with a new
+    payload and recomputed CRCs — the SDK parses our bytes as real."""
+    _total, hlen = _PRELUDE.unpack_from(frame)
+    block = frame[_PRELUDE.size + 4 : _PRELUDE.size + 4 + hlen]
+    total = _PRELUDE.size + 4 + len(block) + len(payload) + 4
+    prelude = _PRELUDE.pack(total, len(block))
+    prelude += _LEN_U32.pack(zlib.crc32(prelude) & 0xFFFFFFFF)
+    msg = prelude + block + payload
+    return msg + _LEN_U32.pack(zlib.crc32(msg) & 0xFFFFFFFF)
+
+
+def _payload_of(frame: bytes) -> bytes:
+    _total, hlen = _PRELUDE.unpack_from(frame)
+    start = _PRELUDE.size + 4 + hlen
+    return frame[start : len(frame) - 4]
+
+
+def _corrupt_payload(frame: bytes) -> bytes:
+    """Flip a byte in the payload, CRCs recomputed — the SDK parses
+    structurally-valid garbage."""
+    payload = _payload_of(frame)
+    if not payload:
+        return frame
+    poisoned = bytes([payload[0] ^ 0xFF]) + payload[1:]
+    return _repayload(frame, poisoned)
+
+
+def _break_crc(frame: bytes) -> bytes:
+    """Emit the frame with a broken message CRC — the SDK raises its
+    checksum/checksum-mismatch error."""
+    return frame[:-1] + bytes([frame[-1] ^ 0xFF])
+
+
+@dataclass
+class Mutation:
+    """One mutation applied when the upstream stream reaches frame ``at``
+    (0-based upstream frame index — indices count real frames, so drops
+    and injects don't shift later indices).
+
+    Actions, in the order they apply at one index: ``inject`` emits its
+    frame first; ``error`` emits and ends the stream (AWS treats
+    mid-stream errors as terminal); ``cut`` emits only that fraction of
+    the frame's bytes then ends the stream; ``drop`` consumes the frame
+    without emitting it; otherwise ``payload``/``corrupt_payload``/
+    ``bad_crc`` transform the frame in place.
+    """
+
+    at: int
+    inject: bytes | None = None
+    error: bytes | None = None
+    cut: float | None = None
+    drop: bool = False
+    payload: bytes | None = None
+    corrupt_payload: bool = False
+    bad_crc: bool = False
+
+
 def frame_length(buf: bytes | bytearray) -> int | None:
     """Total length of the first frame in ``buf`` — None if the prelude
     hasn't fully arrived or the frame is incomplete."""
@@ -67,6 +126,57 @@ def frame_length(buf: bytes | bytearray) -> int | None:
     return total
 
 
+async def mutate_frames(
+    chunks: AsyncIterator[bytes],
+    mutations: Sequence[Mutation],
+) -> AsyncIterator[bytes]:
+    """Yield the upstream stream with ``mutations`` applied at frame
+    boundaries. Mid-stream ``error``/``cut`` end the stream; late
+    ``inject``/``error`` entries beyond the stream length still fire
+    before EOF so a rule isn't a silent no-op."""
+    by_at: dict[int, list[Mutation]] = {}
+    for m in mutations:
+        by_at.setdefault(max(0, m.at), []).append(m)
+
+    buf = bytearray()
+    seen = 0
+    async for chunk in chunks:
+        buf.extend(chunk)
+        while (flen := frame_length(buf)) is not None:
+            frame = bytes(buf[:flen])
+            del buf[:flen]
+            ms = by_at.pop(seen, [])
+            for m in ms:
+                if m.inject is not None:
+                    yield m.inject
+                if m.error is not None:
+                    yield m.error
+                    return
+                if m.cut is not None:
+                    yield frame[: int(len(frame) * max(0.0, min(1.0, m.cut)))]
+                    return
+            if any(m.drop for m in ms):
+                seen += 1
+                continue
+            for m in ms:
+                if m.payload is not None:
+                    frame = _repayload(frame, m.payload)
+                if m.corrupt_payload:
+                    frame = _corrupt_payload(frame)
+                if m.bad_crc:
+                    frame = _break_crc(frame)
+            yield frame
+            seen += 1
+    if buf:
+        yield bytes(buf)
+    for at in sorted(by_at):
+        for m in by_at[at]:
+            if m.inject is not None:
+                yield m.inject
+            if m.error is not None:
+                yield m.error
+
+
 async def splice_after_frames(
     chunks: AsyncIterator[bytes],
     after_frames: int,
@@ -74,22 +184,5 @@ async def splice_after_frames(
 ) -> AsyncIterator[bytes]:
     """Yield the upstream stream; after ``after_frames`` complete frames
     splice in ``frame`` and stop — AWS treats stream errors as terminal."""
-    if after_frames <= 0:
-        yield frame
-        return
-    buf = bytearray()
-    seen = 0
-    async for chunk in chunks:
-        buf.extend(chunk)
-        while (flen := frame_length(buf)) is not None:
-            yield bytes(buf[:flen])
-            del buf[:flen]
-            seen += 1
-            if seen >= after_frames:
-                yield frame
-                return
-    if buf:
-        yield bytes(buf)
-    # stream ended before N frames — append the fault anyway so the rule
-    # isn't a silent no-op
-    yield frame
+    async for c in mutate_frames(chunks, (Mutation(at=after_frames, error=frame),)):
+        yield c

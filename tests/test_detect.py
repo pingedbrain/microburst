@@ -209,6 +209,68 @@ def test_s3_trailing_slash_is_bucket_level_op():
     assert info.operation == "HeadBucket"
 
 
+def test_execute_api_stage_prefix_stripped():
+    # WebSocket management calls hit {api-id}.execute-api.{region}…/{stage}
+    # and sign with the `execute-api` scope — the stage is deployment
+    # addressing, not part of the modeled route /@connections/{id}.
+    headers = {
+        "Authorization": AUTH.format(scope="execute-api"),
+        "Host": "abc123.execute-api.us-east-1.amazonaws.com",
+    }
+    info = detect(headers, "POST", "/prod/@connections/conn-9", {}, b"hi")
+    assert info.service == "apigatewaymanagementapi"
+    assert info.operation == "PostToConnection"
+    assert info.resource == "abc123"  # api-id label lands as the resource
+
+
+def test_virtual_hosted_iot_data_classic():
+    # data.iot is the classic (pre-ATS) iot-data endpoint prefix
+    headers = {"Host": "data.iot.us-east-1.amazonaws.com"}
+    info = detect(headers, "GET", "/things/thing-1/shadow", {}, None)
+    assert info.service == "iot-data"
+
+
+def test_virtual_hosted_iot_data_ats():
+    # {endpoint}-ats.iot… is the ATS *data plane* — plain `iot` would
+    # misread it as the control plane
+    headers = {"Host": "xxx-ats.iot.us-east-1.amazonaws.com"}
+    info = detect(headers, "GET", "/things/thing-1/shadow", {}, None)
+    assert info.service == "iot-data"
+    assert info.operation == "GetThingShadow"
+
+
+def test_virtual_hosted_mediastore_data():
+    headers = {"Host": "abc123.data.mediastore.us-west-2.amazonaws.com"}
+    info = detect(headers, "GET", "/object", {"Path": "/movie.mp4"}, None)
+    assert info.service == "mediastore-data"
+    assert info.region == "us-west-2"
+    assert info.resource == "abc123"
+
+
+def test_virtual_hosted_appsync_invoke():
+    headers = {"Host": "xyz.appsync-api.us-east-1.amazonaws.com"}
+    info = detect(headers, "POST", "/graphql", {}, b"{}")
+    assert info.service == "appsync"
+    assert info.resource == "xyz"
+
+
+def test_virtual_hosted_lambda_url():
+    headers = {"Host": "abc123.lambda-url.us-east-1.on.aws"}
+    info = detect(headers, "GET", "/", {}, None)
+    assert info.service == "lambda"
+    assert info.resource == "abc123"
+
+
+def test_virtual_hosted_s3express_directory_bucket():
+    # directory buckets sign with the unmodeled `s3express` scope —
+    # the host is the only service signal
+    host = "mybucket--use1-az4--x-s3.s3express-use1-az4.us-east-1.amazonaws.com"
+    info = detect({"Host": host}, "GET", "/obj", {}, None)
+    assert info.service == "s3"
+    assert info.operation == "GetObject"
+    assert info.resource == "mybucket--use1-az4--x-s3"
+
+
 def test_s3_key_ending_in_slash_still_resolves_object():
     headers = {**_s3_auth(), "Host": "s3.us-east-1.amazonaws.com"}
     info = detect(headers, "GET", "/mybucket/folder/", {}, None)

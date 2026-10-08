@@ -179,6 +179,21 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
       code: ThrottlingException    #  S3 Select): splice a well-formed
       message: "slowed mid-stream" #  :error frame mid-stream — terminal
       after_frames: 3              #  for the stream, after N real frames
+    event_frames:                  # frame-level eventstream surgery:
+      - at: 1                      #  `at` counts upstream frames (0-based)
+        drop: true                 #  drop that frame
+      - at: 3
+        inject:                    #  emit a custom frame before index 3
+          event_type: Stats
+          payload: '{"BytesScanned": 42}'   # str, dict, or payload_b64
+      - at: 4
+        payload: '{"rew": 1}'      #  replace payload, CRCs recomputed
+      - at: 5
+        bad_crc: true              #  broken CRC → SDK checksum error
+      - at: 6
+        cut: 0.5                   #  emit half the frame, then EOF
+      - at: 8
+        error: {code: ThrottlingException}  # terminal :error frame
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
@@ -265,8 +280,9 @@ Java `null` — the same labels they produce against real AWS).
 
 - Downstream is HTTP/1.1 (AWS SDKs don't speak h2 to the client anyway);
   upstream can be HTTP/2 with `--http2`. Event-stream APIs support
-  mid-stream `:error` frame injection via `response.event_error` —
-  arbitrary per-payload mutation isn't implemented.
+  mid-stream frame surgery via `response.event_frames` (drop, repayload,
+  corrupt, inject, cut, `:error` — all with valid framing/CRCs unless
+  `bad_crc` is the point).
 - Bodies > 4 MiB are streamed uninspected (resource matchers won't apply;
   service/operation still do for REST services).
 - The control API is unauthenticated — **bind it to localhost only**.

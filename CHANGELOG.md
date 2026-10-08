@@ -4,6 +4,26 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Event-stream frame surgery** — `response.event_frames` takes a list
+  of mutations applied at upstream frame indices: `drop`, `inject`
+  (custom `:event-type` + payload), `payload`/`payload_b64` (replace the
+  payload, CRCs recomputed so SDKs parse it as real), `corrupt_payload`,
+  `bad_crc` (broken message CRC → SDK checksum error), `cut` (emit a
+  fraction of the frame, then EOF), and `error` (terminal `:error`
+  frame — the same behavior `event_error` provides as shorthand).
+- **Virtual-hosted detection beyond S3** — host parsing now covers
+  `appsync-api` invoke endpoints, Lambda Function URLs (`*.on.aws`),
+  classic `data.iot` and `{endpoint}-ats.iot` (IoT data plane, not the
+  control plane), S3 Express directory buckets (`s3express-*` labels;
+  they sign with the unmodeled `s3express` scope), and `*.api.aws`
+  service endpoints. `apigatewaymanagementapi` requests strip the
+  deployment-stage path segment before route matching — real
+  `execute-api` endpoints embed it (`/{stage}/@connections/{id}`).
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

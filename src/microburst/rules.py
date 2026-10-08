@@ -7,6 +7,7 @@ evaluate in order; the first matching rule wins per request.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import itertools
 import json
@@ -494,12 +495,82 @@ def _response_fault(spec: dict | None) -> ResponseFault | None:
         event_error_code=_event_error(spec).get("code"),
         event_error_message=_event_error(spec).get("message"),
         event_error_after=int(_event_error(spec).get("after_frames", 3)),
+        event_mutations=_event_mutations(spec),
     )
 
 
 def _event_error(spec: dict) -> dict:
     ee = spec.get("event_error")
     return ee if isinstance(ee, dict) else {}
+
+
+def _payload_bytes(v) -> bytes | None:
+    if v is None:
+        return None
+    if isinstance(v, bytes):
+        return v
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, separators=(",", ":")).encode()
+    return str(v).encode()
+
+
+def _event_mutations(spec: dict) -> tuple:
+    """``response.event_frames`` — frame-level event-stream surgery.
+
+    Each entry is ``{at: <frame index>, <action>}`` where the action is
+    one of: ``inject`` (``{event_type, message_type, payload}`` — emits a
+    new frame before that index), ``error`` (``{code, message}`` —
+    terminal error frame), ``drop``, ``payload``/``payload_b64``
+    (replace the frame's payload, headers kept, CRCs recomputed),
+    ``corrupt_payload``, ``bad_crc``, or ``cut`` (emit a fraction of the
+    frame then end the stream).
+    """
+    entries = spec.get("event_frames")
+    if not isinstance(entries, list):
+        return ()
+    from microburst.eventstream import (
+        Mutation,
+        build_error_frame,
+        build_message,
+    )
+
+    out = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        at = int(entry.get("at", 0))
+        inject = entry.get("inject")
+        inject_frame = None
+        if isinstance(inject, dict):
+            inject_frame = build_message(
+                {
+                    ":message-type": str(inject.get("message_type", "event")),
+                    ":event-type": str(inject.get("event_type", "fault")),
+                },
+                _payload_bytes(inject.get("payload")) or b"",
+            )
+        error = entry.get("error")
+        error_frame = None
+        if isinstance(error, dict) and error.get("code"):
+            error_frame = build_error_frame(
+                str(error["code"]), str(error.get("message") or error["code"])
+            )
+        payload = _payload_bytes(entry.get("payload"))
+        if payload is None and entry.get("payload_b64"):
+            payload = base64.b64decode(entry["payload_b64"])
+        out.append(
+            Mutation(
+                at=at,
+                inject=inject_frame,
+                error=error_frame,
+                cut=_float_or_none(entry.get("cut")),
+                drop=bool(entry.get("drop")),
+                payload=payload,
+                corrupt_payload=bool(entry.get("corrupt_payload")),
+                bad_crc=bool(entry.get("bad_crc")),
+            )
+        )
+    return tuple(out)
 
 
 def _int_or_none(v):
@@ -535,6 +606,8 @@ def describe(decision: Decision) -> str:
                 f"response:event_error:{rf.event_error_code}"
                 f"@{rf.event_error_after}"
             )
+        if rf.event_mutations:
+            parts.append(f"response:event_frames:{len(rf.event_mutations)}")
     return "+".join(parts) or "match"
 
 

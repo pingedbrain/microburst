@@ -151,6 +151,9 @@ class ResponseFault:
     - ``event_error_*``: splice a well-formed event-stream ``:error``
       frame mid-stream (Kinesis SubscribeToShard, S3 Select, ...) after
       ``event_error_after`` upstream frames.
+    - ``event_mutations``: frame-level event-stream surgery — drop,
+      repayload, corrupt, inject, or cut frames at given indices
+      (``response.event_frames`` in the DSL).
     """
     truncate_bytes: int | None = None
     truncate_frac: float | None = None
@@ -161,6 +164,7 @@ class ResponseFault:
     event_error_code: str | None = None
     event_error_message: str | None = None
     event_error_after: int = 3
+    event_mutations: tuple[eventstream.Mutation, ...] = ()
 
     def resolve(self, content_length: int | None) -> None:
         """Turn frac fields into absolute byte counts once the upstream
@@ -402,7 +406,6 @@ async def _stream_to_client(
         k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP
     }
 
-    inject_frame = None
     if mutator is not None:
         cl = headers.get("content-length")
         mutator.resolve(int(cl) if cl else None)
@@ -412,26 +415,30 @@ async def _stream_to_client(
         # wrong bytes, the nastiest outcome.
         if mutator.truncate_bytes is not None:
             resp_headers.pop("Content-Length", None)
-        if mutator.event_error_code and str(
-            headers.get("content-type", "")
-        ).startswith(eventstream.CONTENT_TYPE):
-            # the stream grows by a frame — Content-Length no longer
-            # describes it (streams usually lack one anyway)
-            resp_headers.pop("Content-Length", None)
-            inject_frame = eventstream.build_error_frame(
-                mutator.event_error_code,
-                mutator.event_error_message or mutator.event_error_code,
-            )
+        if str(headers.get("content-type", "")).startswith(
+            eventstream.CONTENT_TYPE
+        ):
+            event_mutations = mutator.event_mutations
+            if mutator.event_error_code:
+                event_mutations = (
+                    *event_mutations,
+                    eventstream.Mutation(
+                        at=mutator.event_error_after,
+                        error=eventstream.build_error_frame(
+                            mutator.event_error_code,
+                            mutator.event_error_message
+                            or mutator.event_error_code,
+                        ),
+                    ),
+                )
+            if event_mutations:
+                # the stream changes shape — Content-Length no longer
+                # describes it (streams usually lack one anyway)
+                resp_headers.pop("Content-Length", None)
+                chunks = eventstream.mutate_frames(chunks, event_mutations)
 
     resp = web.StreamResponse(status=status, headers=resp_headers)
     await resp.prepare(request)
-
-    if inject_frame is not None:
-        # inject_frame is only set when mutator has event_error_code
-        assert mutator is not None
-        chunks = eventstream.splice_after_frames(
-            chunks, mutator.event_error_after, inject_frame
-        )
 
     if mutator is not None and mutator.corrupt_bytes:
         # corrupt needs the whole buffered body — same length, wrong bytes
