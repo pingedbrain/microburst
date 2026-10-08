@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import deque
+from collections import Counter, deque
 
 from aiohttp import web
 
@@ -35,6 +35,8 @@ class Microburst:
         if rules:
             self.engine.set_rules(rules)
         self.fired: deque[FiredEvent] = deque(maxlen=fired_capacity)
+        # Prometheus counters keyed by label tuple — survives deque eviction
+        self.fault_counts: Counter = Counter()
         # SSE subscribers: each is an asyncio.Queue receiving event dicts.
         # Bounded — a slow consumer drops events rather than growing memory.
         self._listeners: set[asyncio.Queue] = set()
@@ -86,6 +88,7 @@ class Microburst:
                 path=request.rel_url.raw_path_qs,
             )
             self.fired.append(event)
+            self.fault_counts[(ctx.service, ctx.operation, action)] += 1
             payload = event.to_dict()
             for q in self._listeners:
                 try:

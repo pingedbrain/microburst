@@ -77,6 +77,9 @@ async def handle_control(microburst, request: web.Request):
             microburst.fired.clear()
             return web.json_response({"cleared": True})
 
+    if tail == "metrics" and method == "GET":
+        return _metrics(microburst)
+
     if tail == "presets" and method == "GET":
         return web.json_response(PRESETS)
 
@@ -93,6 +96,33 @@ async def handle_control(microburst, request: web.Request):
         return web.json_response([to_dict(r) for r in rules])
 
     return web.json_response({"error": "unknown control path"}, status=404)
+
+
+def _metrics(microburst) -> web.Response:
+    """Prometheus text exposition — counters by (service, operation, action)
+    survive deque eviction, unlike the fired log."""
+    lines = [
+        "# HELP microburst_requests_total Total requests through the proxy.",
+        "# TYPE microburst_requests_total counter",
+        f"microburst_requests_total {microburst.requests_seen}",
+        "# HELP microburst_faults_total Faults injected, by service/operation/action.",
+        "# TYPE microburst_faults_total counter",
+    ]
+    for (svc, op, action), n in sorted(microburst.fault_counts.items()):
+        labels = (
+            f'service="{svc or "unknown"}",'
+            f'operation="{op or "unknown"}",action="{action}"'
+        )
+        lines.append(f"microburst_faults_total{{{labels}}} {n}")
+    lines += [
+        "# HELP microburst_rules_active Currently active fault rules.",
+        "# TYPE microburst_rules_active gauge",
+        f"microburst_rules_active {len(microburst.engine.rules)}",
+    ]
+    return web.Response(
+        text="\n".join(lines) + "\n",
+        content_type="text/plain; version=0.0.4",
+    )
 
 
 async def _fired_stream(microburst, request: web.Request) -> web.StreamResponse:

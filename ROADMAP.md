@@ -61,7 +61,9 @@ query-marker + required-header disambiguation.
 - Truncated response — valid envelope, body cut short. `[size:M]`
 - Mid-stream abort — send headers + partial body, then die. `[size:M]`
 - Bandwidth shaping — throttle streamed response bytes/sec. `[size:M]`
-- Latency distributions (gaussian, spike) instead of uniform. `[size:S]`
+- ~~Latency distributions (gaussian, spike)~~ ✅ — `latency: {dist: gaussian,
+  mean, stddev, min?, max?}` and `{dist: spike, min, max, spike_ms, spike_p}`;
+  uniform stays the default.
 
 ## Rules (`rules.py`)
 
@@ -84,7 +86,9 @@ query-marker + required-header disambiguation.
   bounded per-consumer queues, keepalives.
 - ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` on GET /fired
   (time-range still open).
-- `/metrics` Prometheus endpoint. `[good-first-issue]`
+- ~~`/metrics` Prometheus endpoint~~ ✅ — requests/faults by (service,
+  operation, action) + rules gauge. Counters survive fired-log deque
+  eviction.
 - OTel span emission per injected fault. `[size:L]`
 
 ## Data plane (`forward.py`)

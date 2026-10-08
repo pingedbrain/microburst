@@ -26,10 +26,27 @@ _ids = itertools.count(1)
 
 @dataclass
 class Latency:
-    min_ms: float
-    max_ms: float
+    """Latency distribution. `uniform` needs min/max; `gaussian` mean/stddev
+    (optionally clamped to min/max); `spike` is mostly baseline (min/max)
+    with occasional spike_ms hits at spike_p probability."""
+    dist: str = "uniform"
+    min_ms: float = 0.0
+    max_ms: float = 0.0
+    mean_ms: float = 0.0
+    stddev_ms: float = 0.0
+    spike_ms: float = 0.0
+    spike_p: float = 0.05
 
     def sample(self) -> float:
+        if self.dist == "gaussian":
+            v = random.gauss(self.mean_ms, self.stddev_ms)
+            if self.max_ms > self.min_ms:
+                v = min(max(v, self.min_ms), self.max_ms)
+            return max(v, 0.0)
+        if self.dist == "spike":
+            if random.random() < self.spike_p:
+                return self.spike_ms or self.max_ms
+            return random.uniform(self.min_ms, self.max_ms)
         return random.uniform(self.min_ms, self.max_ms)
 
 
@@ -116,6 +133,28 @@ class Decision:
     reset: bool
 
 
+def _latency_from_dict(data: dict) -> Latency:
+    dist = data.get("dist", "uniform")
+    num = {k: float(v) for k, v in data.items() if k != "dist"}
+    if dist == "gaussian":
+        return Latency(
+            dist="gaussian",
+            mean_ms=num.get("mean", 0.0),
+            stddev_ms=num.get("stddev", 0.0),
+            min_ms=num.get("min", 0.0),
+            max_ms=num.get("max", 0.0),
+        )
+    if dist == "spike":
+        return Latency(
+            dist="spike",
+            min_ms=num.get("min", 0.0),
+            max_ms=num.get("max", 0.0),
+            spike_ms=num.get("spike_ms", 0.0),
+            spike_p=num.get("spike_p", 0.05),
+        )
+    return Latency(min_ms=num.get("min", 0.0), max_ms=num.get("max", 0.0))
+
+
 def from_dict(data: dict) -> Rule:
     error = data.get("error")
     latency = data.get("latency")
@@ -146,9 +185,9 @@ def from_dict(data: dict) -> Rule:
         times=data.get("times"),
         error=FaultError(**error) if isinstance(error, dict) else None,
         latency=(
-            Latency(float(latency), float(latency))
+            Latency(min_ms=float(latency), max_ms=float(latency))
             if isinstance(latency, (int, float))
-            else Latency(float(latency["min"]), float(latency["max"]))
+            else _latency_from_dict(latency)
             if isinstance(latency, dict)
             else None
         ),
@@ -195,7 +234,14 @@ def to_dict(rule: Rule) -> dict:
             if v is not None
         }
     if rule.latency:
-        out["latency"] = {"min": rule.latency.min_ms, "max": rule.latency.max_ms}
+        lat = rule.latency
+        d: dict = {"dist": lat.dist}
+        if lat.dist == "gaussian":
+            d.update(mean=lat.mean_ms, stddev=lat.stddev_ms)
+        elif lat.dist == "spike":
+            d.update(spike_ms=lat.spike_ms, spike_p=lat.spike_p)
+        d.update(min=lat.min_ms, max=lat.max_ms)
+        out["latency"] = d
     if rule.timeout_ms is not None:
         out["timeout_ms"] = rule.timeout_ms
     if rule.reset:

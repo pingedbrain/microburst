@@ -111,7 +111,11 @@ curl localhost:9999/_microburst/fired
     code: SlowDown           # omit → samples a plausible modeled exception
     status: 503              # omit → modeled/curated AWS status
     message: "slow down"
-  latency: {min: 500, max: 2000}   # ms; or a bare number
+  latency: {min: 500, max: 2000}   # ms; or a bare number, or a distribution:
+                                   # {dist: gaussian, mean: 500, stddev: 100,
+                                   #  min: 100, max: 2000}
+                                   # {dist: spike, min: 50, max: 100,
+                                   #  spike_ms: 5000, spike_p: 0.05}
   timeout_ms: 30000                # hold the connection, then 504
   reset: true                      # abort the TCP connection
 ```
@@ -133,6 +137,7 @@ surface.
 | GET · POST · PATCH · DELETE | `/_microburst/rules` | list / replace / append / clear rules |
 | GET · DELETE | `/_microburst/fired` | fault audit log / clear it — GET filters: `?service=&operation=&rule_id=&limit=` |
 | GET | `/_microburst/fired/stream` | live SSE tail — every fault as it fires |
+| GET | `/_microburst/metrics` | Prometheus exposition: `microburst_requests_total`, `microburst_faults_total{service,operation,action}`, `microburst_rules_active` |
 | GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |
 
 Load rules at startup with `microburst --config chaos.yml`
