@@ -5,6 +5,12 @@
 <h1 align="center">microburst</h1>
 
 <p align="center">
+  <a href="https://pingedbrain.github.io/microburst/">site</a> ·
+  <a href="https://pypi.org/project/microburst/">pypi</a> ·
+  <a href="https://github.com/pingedbrain/microburst/releases">releases</a>
+</p>
+
+<p align="center">
   <strong>AWS failure injection that your SDK actually believes.</strong><br>
   Throttling, latency, timeouts and resets — in the exact wire format AWS uses,<br>
   so retry, backoff and circuit-breaker code gets exercised for real.
