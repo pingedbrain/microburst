@@ -41,10 +41,15 @@ def rest_operations(service: str) -> list[dict]:
             http = op.http
             uri = http.get("requestUri", "/")
             path_uri, _, literal_query = uri.partition("?")
-            query_markers = {
-                part.split("=", 1)[0] for part in literal_query.split("&") if part
-            }
+            # Markers carry discriminative values: ``?operation=create`` vs
+            # ``?operation=suspend`` distinguish ops on the same route.
+            query_markers = {}
+            for part in literal_query.split("&"):
+                if part:
+                    k, _, v = part.partition("=")
+                    query_markers[k] = v or None
             required_headers = set()
+            required_query = set()
             required_body_keys: set[str] = set()
             body_keys: set[str] = set()
             has_payload = False
@@ -62,6 +67,15 @@ def rest_operations(service: str) -> list[dict]:
                     ):
                         required_headers.add(
                             serialization.get("locationName", name).lower()
+                        )
+                    elif (
+                        serialization.get("location") == "querystring"
+                        and name in input_shape.required_members
+                    ):
+                        # S3 UploadPart's partNumber/uploadId, etc. — real
+                        # SDKs always send them, so they discriminate.
+                        required_query.add(
+                            serialization.get("locationName", name)
                         )
                     elif not serialization.get("location"):
                         if name == payload_member:
@@ -91,8 +105,17 @@ def rest_operations(service: str) -> list[dict]:
                     "method": http.get("method", "GET"),
                     "regex": uri_to_regex(path_uri),
                     "op": op_name,
+                    # literal chars in the route — a greedy ``{Label+}``
+                    # pattern swallows sibling literal segments
+                    # (``/portals/{arn+}`` vs ``/portals/{arn+}/policy``),
+                    # so on a tied score the more specific route wins.
+                    "specificity": (
+                        len(re.sub(r"\{[^}]*\}", "", path_uri)),
+                        -len(re.findall(r"\{[^}]*\}", path_uri)),
+                    ),
                     "query_markers": query_markers,
                     "required_headers": required_headers,
+                    "required_query": required_query,
                     "required_body_keys": required_body_keys,
                     "body_keys": body_keys,
                     "has_payload": has_payload,
@@ -165,13 +188,16 @@ def match_rest_operation(
     parsed = structured_body_keys(body) if needs_body else None
     for entry in entries:
         score = 0
-        if entry["query_markers"]:
-            if entry["query_markers"] <= set(query):
-                score += 2 * len(entry["query_markers"])
-            else:
+        for marker, want in entry["query_markers"].items():
+            got = query.get(marker)
+            if marker not in query or (want is not None and got != want):
                 score -= 10
+            else:
+                score += 2
         for h in entry["required_headers"]:
             score += 2 if h in lower_headers else -10
+        for q in entry["required_query"]:
+            score += 2 if q in query else -10
         if parsed is not None:
             body_keys, kind = parsed
             if kind == "xml" and entry["payload_name"]:
@@ -191,6 +217,6 @@ def match_rest_operation(
             # points on missing required keys).
             if not body_keys and body and entry["has_payload"]:
                 score += 2
-        candidates.append((score, entry["op"]))
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1]
+        candidates.append((score, *entry["specificity"], entry["op"]))
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return candidates[0][3]

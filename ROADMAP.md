@@ -105,7 +105,12 @@ query-marker + required-header disambiguation.
   doesn't speak h2 anyway).
 - ~~Response-side faults~~ ✅ — `response:` block (truncate/abort/corrupt/
   bandwidth) mutates the upstream response while streaming.
-- Keep-alive / connection pooling fidelity checks against real AWS.
+- ~~Keep-alive / connection pooling fidelity~~ ✅ — `test_keepalive.py`:
+  pooled clients reuse one upstream connection through the proxy, injected
+  errors keep the downstream socket alive (no `Connection: close`), and
+  `reset` still kills. Live captures show AWS itself varies per service
+  (keep-alive on dynamodb/lambda, close on ec2/secretsmanager) — the
+  proxy preserves rather than imposes semantics.
 
 ## Fidelity & verification
 
@@ -128,8 +133,17 @@ query-marker + required-header disambiguation.
   that status matches the modeled `httpStatusCode`.
 - Multi-SDK matrix — boto3, aws-sdk-js-v3, aws-sdk-java, aws-sdk-go v2.
   Same wire format, different header quirks. `[size:M]`
-- REST collision sweep — run every ambiguous method+path pair through the
-  matcher (S3's 9 routes, chime families) and snapshot expected ops. `[size:S]`
+- ~~REST collision sweep~~ ✅ — `detection/sweep.py` synthesizes the minimal
+  request each of the ~10.4k REST ops declares and asserts the matcher
+  resolves it back to itself; `fidelity/rest_sweep.json` is the committed
+  snapshot, `test_rest_sweep.py` the regression guard. 10,403 ops swept;
+  only 5 remain unresolvable — genuine AWS aliases (identical literal
+  routes like `GetBucketLifecycle`/`GetBucketLifecycleConfiguration`, and
+  `ListBuckets`/`ListDirectoryBuckets` which AWS separates by host). The
+  sweep drove three real matcher fixes: query-marker *values* discriminate
+  (`?operation=create` vs `suspend`), required querystring members score
+  (S3 `partNumber`/`uploadId`), and route specificity breaks ties when a
+  greedy `{Label+}` swallows literal sibling segments.
 
 ## Ecosystem
 

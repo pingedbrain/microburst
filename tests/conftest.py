@@ -63,6 +63,8 @@ class Upstub:
                 "path": request.rel_url.raw_path_qs,
                 "headers": dict(request.headers),
                 "body": body,
+                # upstream TCP connection identity — keep-alive reuse check
+                "conn": id(request.transport),
             }
         )
 

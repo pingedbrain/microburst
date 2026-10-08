@@ -111,10 +111,12 @@ def test_rest_xml_lifecycle_root():
 
 def test_rest_raw_body_favors_payload_op():
     # ImportApiKeys needs the ?mode=import marker, but a raw CSV body must
-    # never resolve to a structure-demanding op.
+    # never resolve to a structure-demanding op. Real SDKs also send the
+    # required `format` query member.
     headers = _auth("apigateway")
     info = detect(
-        headers, "POST", "/apikeys", {"mode": "import"}, b"key1,key2"
+        headers, "POST", "/apikeys",
+        {"mode": "import", "format": "csv"}, b"key1,key2"
     )
     assert info.operation == "ImportApiKeys"
 
