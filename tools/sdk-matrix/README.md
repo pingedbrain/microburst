@@ -34,8 +34,9 @@ maps a codeless 503 differently:
 - **boto3** → `"503"` (status-as-code)
 - **aws-sdk-go-v2** → `"ServiceUnavailable"` (smithy-go generic)
 - **aws-sdk-js-v3** → `"Unknown"` (smithy-js generic)
+- **aws-sdk-java-v2** → `null` (`awsErrorDetails().errorCode()` is absent)
 
-All three retried the 503 — retry semantics agree, only the error *label*
+All four retried the 503 — retry semantics agree, only the error *label*
 differs, exactly as it does against real AWS.
 
 ## Running

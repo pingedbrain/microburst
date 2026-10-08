@@ -23,10 +23,11 @@ All notable changes to this project will be documented here. Format follows
   aws-sdk-js-v3, aws-sdk-go-v2, and aws-sdk-java-v2 against a live
   microburst on every push.
 
-- **Multi-SDK matrix** — `tools/sdk-matrix/` runs real boto3, aws-sdk-js-v3,
-  and aws-sdk-go-v2 clients against a live microburst and verifies the
-  *parsed* error code, HTTP status, and retry attempts (measured
-  client-side and via the fired log — both must agree). 12/12 cells pass.
+- **Multi-SDK matrix** — `tools/sdk-matrix/` runs real boto3,
+  aws-sdk-js-v3, aws-sdk-go-v2, and aws-sdk-java-v2 clients against a
+  live microburst and verifies the *parsed* error code, HTTP status,
+  and retry attempts (measured client-side and via the fired log —
+  both must agree). 16/16 cells pass in CI.
 - **Expanded live-AWS probes** — 28 wire captures (was 13), adding
   Kinesis, StepFunctions, Cognito, Athena, Route53Resolver, WAFv2,
   CloudWatch (query-compat JSON on the wire), EventBridge, Glacier, SESv2,
