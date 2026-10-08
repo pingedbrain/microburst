@@ -12,13 +12,15 @@ jobs:
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: Install Python
-        run: uv python install ${{ matrix.python }}
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Create env
+        run: uv venv --python ${{ matrix.python }} .venv
       - name: Install
-        run: uv pip install --python ${{ matrix.python }} --system -e ".[test]"
+        run: uv pip install --python .venv/bin/python -e ".[test]"
       - name: Lint
-        run: uvx ruff check src/ tests/
+        run: .venv/bin/python -m ruff check src/ tests/
       - name: Test
-        run: uv run --python ${{ matrix.python }} --no-project --with-editable . --with pytest --with boto3 python -m pytest tests/ -q
+        run: .venv/bin/python -m pytest tests/ -q
