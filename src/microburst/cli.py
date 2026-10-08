@@ -50,6 +50,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="debug logging",
     )
+    parser.add_argument(
+        "--http2", action="store_true",
+        help="use HTTP/2 for the upstream connection (needs microburst[h2])",
+    )
+    parser.add_argument(
+        "command", nargs="?", choices=["dashboard"], default=None,
+        help="'dashboard' launches the TUI (needs microburst[tui])",
+    )
+    parser.add_argument(
+        "--connect", default=None,
+        help="microburst instance URL for dashboard mode "
+        "(default: http://127.0.0.1:PORT)",
+    )
     return parser
 
 
@@ -65,8 +78,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.config:
         config = load_config(args.config)
 
-    upstream = args.upstream or config.get("upstream") or "http://localhost:4566"
     port = args.port or config.get("port") or 9999
+
+    if args.command == "dashboard":
+        from microburst.dashboard import run_dashboard
+
+        connect = args.connect or f"http://127.0.0.1:{port}"
+        return run_dashboard(connect)
+
+    upstream = args.upstream or config.get("upstream") or "http://localhost:4566"
     host = args.host or config.get("host") or "127.0.0.1"
     rules = config.get("rules") or []
 
@@ -77,7 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         resign = None  # auto
 
-    microburst = Microburst(upstream, rules=rules, resign=resign)
+    microburst = Microburst(
+        upstream, rules=rules, resign=resign, http2=args.http2
+    )
     app = make_app(microburst)
 
     print(f"microburst listening on http://{host}:{port} → {upstream}", flush=True)

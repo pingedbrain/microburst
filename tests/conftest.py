@@ -128,8 +128,10 @@ def microburst_server():
 
     started = []
 
-    def _start(upstream: str, rules: list[dict] | None = None):
-        sq = Microburst(upstream, rules=rules, resign=False)
+    def _start(
+        upstream: str, rules: list[dict] | None = None, **mb_kwargs
+    ):
+        sq = Microburst(upstream, rules=rules, resign=False, **mb_kwargs)
         server = ServerThread(make_app(sq)).start()
         started.append(server)
         return sq, server

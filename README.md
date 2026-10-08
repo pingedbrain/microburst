@@ -52,6 +52,16 @@ envelope, and the right status.
 
 ```bash
 pip install microburst        # or: uvx microburst
+pip install microburst[tui]   # + TUI dashboard (rich)
+pip install microburst[h2]    # + HTTP/2 upstream transport (httpx)
+pip install microburst[otel]  # + OpenTelemetry fault spans
+```
+
+Docker:
+
+```bash
+docker run --rm -p 9999:9999 ghcr.io/pingedbrain/microburst:latest \
+  --upstream http://host.docker.internal:4566
 ```
 
 ## Quickstart
@@ -86,6 +96,12 @@ Then watch **exactly what fired** — chaos you can audit:
 curl localhost:9999/_microburst/fired
 # → [{"rule": "...", "service": "dynamodb", "operation": "PutItem",
 #     "action": "error:ProvisionedThroughputExceededException", ...}]
+```
+
+Or watch it live in the terminal:
+
+```bash
+microburst dashboard            # TUI: rules + live fault stream (needs [tui])
 ```
 
 ## Rules
@@ -158,12 +174,14 @@ microburst --upstream https://dynamodb.us-east-1.amazonaws.com
 
 Requests are re-signed with your credentials automatically for
 `amazonaws.com` upstreams (`--no-resign` to disable). Useful for game days
-against staging accounts.
+against staging accounts. Add `--http2` (needs `microburst[h2]`) to talk
+HTTP/2 to the upstream — AWS endpoints negotiate it via ALPN.
 
 ## Caveats
 
-- HTTP/1.1 data plane; event-stream APIs pass through but per-frame fault
-  injection isn't implemented yet.
+- Downstream is HTTP/1.1 (AWS SDKs don't speak h2 to the client anyway);
+  upstream can be HTTP/2 with `--http2`. Event-stream APIs pass through
+  but per-frame fault injection isn't implemented yet.
 - Bodies > 4 MiB are streamed uninspected (resource matchers won't apply;
   service/operation still do for REST services).
 - The control API is unauthenticated — **bind it to localhost only**.

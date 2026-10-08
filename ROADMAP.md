@@ -99,9 +99,12 @@ query-marker + required-header disambiguation.
 
 ## Data plane (`forward.py`)
 
-- HTTP/2 upstream support.
-- Response-side faults — mutate the *upstream* response (strip fields,
-  inject latency mid-stream) rather than only replacing it. `[size:L]`
+- ~~HTTP/2 upstream support~~ ✅ — `--http2` swaps the upstream client to
+  httpx with HTTP/2 (negotiates via ALPN on https upstreams; cleartext
+  stays h1 — httpx doesn't do h2c). Downstream stays HTTP/1.1 (boto3
+  doesn't speak h2 anyway).
+- ~~Response-side faults~~ ✅ — `response:` block (truncate/abort/corrupt/
+  bandwidth) mutates the upstream response while streaming.
 - Keep-alive / connection pooling fidelity checks against real AWS.
 
 ## Fidelity & verification
@@ -122,11 +125,14 @@ query-marker + required-header disambiguation.
 
 ## Ecosystem
 
-- Docker image + compose examples. `[good-first-issue]`
+- ~~Docker image~~ ✅ — multi-stage `Dockerfile` (slim, wheel build),
+  published to GHCR on release by `docker.yml`. Compose examples still
+  open. `[good-first-issue]`
 - GitHub Action for CI pipelines (service container + preset flag). `[size:M]`
 - MiniStack-native integration — `/_ministack/chaos`-compatible API so the
   same faults work without a separate proxy hop.
-- TUI dashboard — live rules + fired stream (leverages the SSE endpoint).
+- ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
+  `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`
 
 ## Explicitly out of scope (for now)

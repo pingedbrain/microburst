@@ -21,6 +21,11 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
+try:
+    import httpx
+except ImportError:  # optional — only needed for --http2
+    httpx = None
+
 logger = logging.getLogger("microburst.forward")
 
 HOP_BY_HOP = frozenset(
@@ -156,18 +161,41 @@ class ResponseFault:
 
 
 class Upstream:
-    """Client for the upstream endpoint: session lifecycle + relay."""
+    """Client for the upstream endpoint: session lifecycle + relay.
 
-    def __init__(self, base_url: str, resign: bool = False):
+    ``http2=True`` swaps the aiohttp client for httpx with HTTP/2 enabled
+    (needs ``microburst[h2]``). Only the *upstream* side negotiates H2 —
+    the downstream side stays HTTP/1.1 because boto3/urllib3 doesn't
+    speak H2 anyway.
+    """
+
+    def __init__(self, base_url: str, resign: bool = False, http2: bool = False):
         self.base_url = base_url.rstrip("/")
         self.resign = resign
+        self.http2 = http2
         self.session: aiohttp.ClientSession | None = None
+        self.hx = None  # httpx.AsyncClient when http2
 
     async def start(self) -> None:
-        timeout = aiohttp.ClientTimeout(total=600, connect=30)
-        self.session = aiohttp.ClientSession(
-            timeout=timeout, auto_decompress=False
-        )
+        if self.http2:
+            try:
+                import httpx
+            except ImportError:
+                logger.warning(
+                    "--http2 requires `pip install microburst[h2]`; "
+                    "falling back to HTTP/1.1"
+                )
+                self.http2 = False
+            else:
+                self.hx = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(600, connect=30),
+                )
+        if not self.http2:
+            timeout = aiohttp.ClientTimeout(total=600, connect=30)
+            self.session = aiohttp.ClientSession(
+                timeout=timeout, auto_decompress=False
+            )
         if self.resign and not (
             os.environ.get("AWS_ACCESS_KEY_ID")
             and os.environ.get("AWS_SECRET_ACCESS_KEY")
@@ -180,6 +208,17 @@ class Upstream:
     async def stop(self) -> None:
         if self.session:
             await self.session.close()
+        if self.hx is not None:
+            await self.hx.aclose()
+
+    def _outbound_headers(self, request: web.Request) -> dict[str, str]:
+        headers = {
+            k.lower(): v
+            for k, v in request.headers.items()
+            if k.lower() not in HOP_BY_HOP
+        }
+        headers["host"] = self.base_url.split("//", 1)[-1].split("/")[0]
+        return headers
 
     async def relay(
         self,
@@ -187,14 +226,74 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None = None,
     ) -> web.StreamResponse:
+        if self.hx is not None:
+            return await self._relay_httpx(request, body, mutator)
+        return await self._relay_aiohttp(request, body, mutator)
+
+    async def _relay_httpx(
+        self,
+        request: web.Request,
+        body: bytes | None,
+        mutator: ResponseFault | None,
+    ) -> web.StreamResponse:
+        url = self.base_url + request.rel_url.raw_path_qs
+        headers = self._outbound_headers(request)
+
+        if self.resign:
+            payload_hash = (
+                hashlib.sha256(body).hexdigest()
+                if body is not None
+                else "UNSIGNED-PAYLOAD"
+            )
+            signed = resign_headers(
+                request.method,
+                request.rel_url.raw_path,
+                request.rel_url.query_string,
+                headers,
+                payload_hash,
+            )
+            if signed is not None:
+                headers = signed
+
+        async def content_stream():
+            if body is not None:
+                yield body
+            else:
+                async for chunk in request.content.iter_any():
+                    yield chunk
+
+        req = self.hx.build_request(
+            request.method, url, headers=headers, content=content_stream()
+        )
+        try:
+            upstream = await self.hx.send(req, stream=True)
+        except httpx.HTTPError as exc:
+            logger.error("upstream error: %s", exc)
+            return web.Response(
+                status=502,
+                text=f"microburst: upstream {self.base_url} unreachable: {exc}",
+            )
+        chunk_size = 8192 if mutator and mutator.bandwidth_kbps else None
+        # aiter_raw: no decoding — we forward bytes verbatim, the client
+        # owns Content-Encoding semantics
+        chunks = upstream.aiter_raw(chunk_size=chunk_size)
+        return await _stream_to_client(
+            request,
+            upstream.status_code,
+            upstream.headers,
+            mutator,
+            chunks,
+        )
+
+    async def _relay_aiohttp(
+        self,
+        request: web.Request,
+        body: bytes | None,
+        mutator: ResponseFault | None,
+    ) -> web.StreamResponse:
         assert self.session is not None
         url = self.base_url + request.rel_url.raw_path_qs
-        headers = {
-            k.lower(): v
-            for k, v in request.headers.items()
-            if k.lower() not in HOP_BY_HOP
-        }
-        headers["host"] = self.base_url.split("//", 1)[-1].split("/")[0]
+        headers = self._outbound_headers(request)
 
         if self.resign:
             payload_hash = (
@@ -228,64 +327,78 @@ class Upstream:
                 text=f"microburst: upstream {self.base_url} unreachable: {exc}",
             )
 
-        resp_headers = {
-            k: v for k, v in upstream.headers.items()
-            if k.lower() not in HOP_BY_HOP
-        }
-
-        if mutator is not None:
-            cl = upstream.headers.get("Content-Length")
-            mutator.resolve(int(cl) if cl else None)
-            # Truncation drops Content-Length so the client reads a
-            # complete-but-short body; abort keeps it so the client
-            # sees an incomplete read. Corrupt keeps it — same length,
-            # wrong bytes, the nastiest outcome.
-            if mutator.truncate_bytes is not None:
-                resp_headers.pop("Content-Length", None)
-
-        resp = web.StreamResponse(status=upstream.status, headers=resp_headers)
-        await resp.prepare(request)
-
-        if mutator is not None and mutator.corrupt_bytes:
-            data = bytearray(await upstream.read())
-            for _ in range(min(mutator.corrupt_bytes, len(data))):
-                data[secrets.randbelow(len(data))] ^= 0xFF
-            await resp.write(bytes(data))
-            await resp.write_eof()
-            return resp
-
-        sent = 0
         chunk_size = 8192 if mutator and mutator.bandwidth_kbps else 0
-        iterator = (
+        chunks = (
             upstream.content.iter_chunked(chunk_size)
             if chunk_size
             else upstream.content.iter_any()
         )
-        async for chunk in iterator:
-            if mutator is not None:
-                if mutator.bandwidth_kbps:
-                    await asyncio.sleep(
-                        len(chunk) / (mutator.bandwidth_kbps * 1024)
-                    )
-                if mutator.truncate_bytes is not None:
-                    remaining = mutator.truncate_bytes - sent
-                    if remaining <= 0:
-                        break
-                    chunk = chunk[:remaining]
-                if (
-                    mutator.abort_bytes is not None
-                    and sent + len(chunk) > mutator.abort_bytes
-                ):
-                    keep = mutator.abort_bytes - sent
-                    if keep > 0:
-                        await resp.write(chunk[:keep])
-                    # die mid-stream: partial body already sent, now
-                    # the connection drops — the client's read fails
-                    transport = request.transport
-                    if transport is not None:
-                        transport.abort()
-                    return resp
-            await resp.write(chunk)
-            sent += len(chunk)
+        return await _stream_to_client(
+            request, upstream.status, upstream.headers, mutator, chunks
+        )
+
+
+async def _stream_to_client(
+    request: web.Request,
+    status: int,
+    headers,
+    mutator: ResponseFault | None,
+    chunks,
+) -> web.StreamResponse:
+    """Shared response writer for both transports: copies upstream headers,
+    applies ResponseFault mutations, streams chunks downstream."""
+    resp_headers = {
+        k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP
+    }
+
+    if mutator is not None:
+        cl = headers.get("content-length")
+        mutator.resolve(int(cl) if cl else None)
+        # Truncation drops Content-Length so the client reads a
+        # complete-but-short body; abort keeps it so the client
+        # sees an incomplete read. Corrupt keeps it — same length,
+        # wrong bytes, the nastiest outcome.
+        if mutator.truncate_bytes is not None:
+            resp_headers.pop("Content-Length", None)
+
+    resp = web.StreamResponse(status=status, headers=resp_headers)
+    await resp.prepare(request)
+
+    if mutator is not None and mutator.corrupt_bytes:
+        # corrupt needs the whole buffered body — same length, wrong bytes
+        data = bytearray()
+        async for c in chunks:
+            data.extend(c)
+        for _ in range(min(mutator.corrupt_bytes, len(data))):
+            data[secrets.randbelow(len(data))] ^= 0xFF
+        await resp.write(bytes(data))
         await resp.write_eof()
         return resp
+
+    sent = 0
+    async for chunk in chunks:
+        if mutator is not None:
+            if mutator.bandwidth_kbps:
+                await asyncio.sleep(len(chunk) / (mutator.bandwidth_kbps * 1024))
+            if mutator.truncate_bytes is not None:
+                remaining = mutator.truncate_bytes - sent
+                if remaining <= 0:
+                    break
+                chunk = chunk[:remaining]
+            if (
+                mutator.abort_bytes is not None
+                and sent + len(chunk) > mutator.abort_bytes
+            ):
+                keep = mutator.abort_bytes - sent
+                if keep > 0:
+                    await resp.write(chunk[:keep])
+                # die mid-stream: partial body already sent, now
+                # the connection drops — the client's read fails
+                transport = request.transport
+                if transport is not None:
+                    transport.abort()
+                return resp
+        await resp.write(chunk)
+        sent += len(chunk)
+    await resp.write_eof()
+    return resp

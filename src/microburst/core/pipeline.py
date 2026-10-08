@@ -27,10 +27,12 @@ logger = logging.getLogger("microburst")
 
 class Microburst:
     def __init__(self, upstream: str, rules: list[dict] | None = None,
-                 resign: bool | None = None, fired_capacity: int = 2000):
+                 resign: bool | None = None, fired_capacity: int = 2000,
+                 http2: bool = False):
         self.upstream = Upstream(
             upstream,
             resign=(".amazonaws.com" in upstream) if resign is None else resign,
+            http2=http2,
         )
         self.engine = RuleEngine()
         if rules:
