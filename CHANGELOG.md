@@ -4,6 +4,19 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [0.3.0] - 2026-10-08
+
+Dashboard, Docker, and HTTP/2.
+
+### Added
+
+- **`microburst dashboard`** — live TUI (rich, `microburst[tui]` extra):
+  rules table + fired-event stream over SSE, reconnecting reader.
+- **Docker image** — multi-stage slim `Dockerfile`; `docker.yml` publishes
+  `ghcr.io/pingedbrain/microburst:{version,latest}` on release.
+- **`--http2`** — upstream transport swaps to httpx with HTTP/2
+  (`microburst[h2]` extra; ALPN on https upstreams, cleartext stays h1).
+
 ## [0.2.0] - 2026-10-08
 
 Full protocol coverage (436/436 modeled services), a grown-up rule DSL,
@@ -78,5 +91,6 @@ Initial public release.
 - Optional SigV4 re-signing for real `amazonaws.com` upstreams.
 - CLI (`microburst`), YAML config, `demo.py` (orders pipeline → MiniStack).
 
+[0.3.0]: https://github.com/pingedbrain/microburst/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pingedbrain/microburst/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pingedbrain/microburst/releases/tag/v0.1.0
