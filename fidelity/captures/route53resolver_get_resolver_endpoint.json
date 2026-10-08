@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"ResourceNotFoundException\",\"Message\":\"[RSLVR-00501] Resolver endpoint with ID \\\"microburst-fidelity-doesnotexist-7f3a9\\\" does not exist.\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "149",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:52 GMT",
+    "x-amzn-RequestId": "6c70077e-e61b-4488-b8aa-0118267b3f8b"
+  },
+  "method": "POST",
+  "model_service": "route53resolver",
+  "operation": "get_resolver_endpoint",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "route53resolver",
+  "status": 400,
+  "ts": 1791475792.8681386,
+  "url": "https://route53resolver.us-east-1.amazonaws.com/"
+}

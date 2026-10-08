@@ -5,16 +5,17 @@
   "headers": {
     "Content-Length": "96",
     "Content-Type": "application/x-amz-json-1.0",
-    "Date": "Thu, 08 Oct 2026 14:49:20 GMT",
+    "Date": "Thu, 08 Oct 2026 16:09:44 GMT",
     "connection": "keep-alive",
-    "x-amzn-RequestId": "747bd204-f7ae-5c4f-bf1e-b145581e1ca0",
+    "x-amzn-RequestId": "8d56ad0a-671d-5858-b17e-ce4ba5954c27",
     "x-amzn-query-error": "AWS.SimpleQueueService.NonExistentQueue;Sender"
   },
   "method": "POST",
+  "model_service": "sqs",
   "operation": "get_queue_url",
   "sdk_error_code": "AWS.SimpleQueueService.NonExistentQueue",
   "service": "sqs",
   "status": 400,
-  "ts": 1791470961.0343883,
+  "ts": 1791475784.2208261,
   "url": "https://sqs.us-east-1.amazonaws.com/"
 }

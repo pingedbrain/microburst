@@ -1,0 +1,21 @@
+{
+  "body": "{\"__type\":\"ResourceNotFoundException\",\"message\":\"Stream microburst-fidelity-doesnotexist-7f3a9 under account 000000000000 not found.\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Connection": "close",
+    "Content-Length": "134",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:49 GMT",
+    "x-amz-id-2": "dSvaUfe/5W1+1QMbwb6uIPuZYwEamSMc3qzFm2JhSdQGBOj5CpKUtItixo5QG9vtJfgFJRxpha3xGF2oOOsw1xekbs6U01ps",
+    "x-amzn-RequestId": "d1fb52c9-f5ec-48b5-b2ba-90447196d06b"
+  },
+  "method": "POST",
+  "model_service": "kinesis",
+  "operation": "describe_stream",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "kinesis",
+  "status": 400,
+  "ts": 1791475789.5544796,
+  "url": "https://kinesis.us-east-1.amazonaws.com/"
+}

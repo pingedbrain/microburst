@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"ValidationException\",\"message\":\"2 validation errors detected: Value 'microburst-fidelity-doesnotexist-7f3a9' at 'id' failed to satisfy constraint: Member must satisfy regular expression pattern: ^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$; Value 'microburst-fidelity-doesnotexist-7f3a9' at 'id' failed to satisfy constraint: Member must have length less than or equal to 36\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Connection": "close",
+    "Content-Length": "388",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:53 GMT",
+    "x-amzn-RequestId": "d58804e6-e6d2-4a00-8e99-f4cb57ea2a6c"
+  },
+  "method": "POST",
+  "model_service": "wafv2",
+  "operation": "get_web_acl",
+  "sdk_error_code": "ValidationException",
+  "service": "wafv2",
+  "status": 400,
+  "ts": 1791475793.7258854,
+  "url": "https://wafv2.us-east-1.amazonaws.com/"
+}

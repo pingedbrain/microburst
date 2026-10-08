@@ -199,3 +199,17 @@ def test_proxy_host_yields_nothing():
     assert info.service == "s3"
     assert info.region == "us-east-1"
     assert info.resource == "b"
+
+
+def test_s3_trailing_slash_is_bucket_level_op():
+    # aws-sdk-js-v3 sends HEAD /bucket/ for HeadBucket — the greedy {Key+}
+    # must not swallow the empty segment and match HeadObject instead.
+    headers = {**_s3_auth(), "Host": "s3.us-east-1.amazonaws.com"}
+    info = detect(headers, "HEAD", "/mybucket/", {}, None)
+    assert info.operation == "HeadBucket"
+
+
+def test_s3_key_ending_in_slash_still_resolves_object():
+    headers = {**_s3_auth(), "Host": "s3.us-east-1.amazonaws.com"}
+    info = detect(headers, "GET", "/mybucket/folder/", {}, None)
+    assert info.operation == "GetObject"

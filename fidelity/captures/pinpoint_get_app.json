@@ -1,0 +1,29 @@
+{
+  "body": "{\n  \"RequestID\" : \"E7r9YHLvIAMESNA=\",\n  \"Message\" : \"Application not found\"\n}",
+  "body_b64": null,
+  "family": "rest-json",
+  "headers": {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    "Connection": "keep-alive",
+    "Content-Length": "77",
+    "Content-Type": "application/json",
+    "Date": "Thu, 08 Oct 2026 16:09:57 GMT",
+    "Via": "1.1 5282f05ec68a2d5240248ce5a9af05a2.cloudfront.net (CloudFront)",
+    "X-Amz-Cf-Id": "_ZL_j8QFAuk1PiHkrZQ55q1C0kPUvQOXnqFI62Cwug5Gor98cL4Tvg==",
+    "X-Amz-Cf-Pop": "EZE50-P6",
+    "X-Amzn-Trace-Id": "Root=1-6ac7c055-61936b9d4731529742576e2c;Parent=5c150210eee8e9f7;Sampled=0;Lineage=1:a9afa844:0",
+    "X-Cache": "Error from cloudfront",
+    "x-amz-apigw-id": "E7r9YHLvIAMESNA=",
+    "x-amzn-ErrorType": "NotFoundException",
+    "x-amzn-RequestId": "d2f82449-ba7d-4cbd-9b2b-cbcf6aba527f"
+  },
+  "method": "GET",
+  "model_service": "pinpoint",
+  "operation": "get_app",
+  "sdk_error_code": "NotFoundException",
+  "service": "pinpoint",
+  "status": 404,
+  "ts": 1791475797.335977,
+  "url": "https://pinpoint.us-east-1.amazonaws.com/v1/apps/microburst-fidelity-doesnotexist-7f3a9"
+}

@@ -1,18 +1,19 @@
 {
-  "body": "<?xml version=\"1.0\"?>\n<ErrorResponse xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\"><Error><Type>Sender</Type><Code>NoSuchHostedZone</Code><Message>No hosted zone found with ID: ZMICROBURST-FID</Message></Error><RequestId>e15a5517-14d3-4e38-aa03-7f0abb11a762</RequestId></ErrorResponse>",
+  "body": "<?xml version=\"1.0\"?>\n<ErrorResponse xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\"><Error><Type>Sender</Type><Code>NoSuchHostedZone</Code><Message>No hosted zone found with ID: ZMICROBURST-FID</Message></Error><RequestId>caaedd1b-55f3-4637-aa25-ab72106bc04a</RequestId></ErrorResponse>",
   "body_b64": null,
   "family": "rest-xml",
   "headers": {
     "Content-Length": "293",
     "Content-Type": "text/xml",
-    "Date": "Thu, 08 Oct 2026 14:49:24 GMT",
-    "x-amzn-RequestId": "e15a5517-14d3-4e38-aa03-7f0abb11a762"
+    "Date": "Thu, 08 Oct 2026 16:09:47 GMT",
+    "x-amzn-RequestId": "caaedd1b-55f3-4637-aa25-ab72106bc04a"
   },
   "method": "GET",
+  "model_service": "route53",
   "operation": "get_hosted_zone",
   "sdk_error_code": "NoSuchHostedZone",
   "service": "route53",
   "status": 404,
-  "ts": 1791470964.6445868,
+  "ts": 1791475787.8632479,
   "url": "https://route53.amazonaws.com/2013-04-01/hostedzone/ZMICROBURST-FID"
 }

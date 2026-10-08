@@ -6,16 +6,17 @@
     "Connection": "keep-alive",
     "Content-Length": "99",
     "Content-Type": "application/json",
-    "Date": "Thu, 08 Oct 2026 14:49:25 GMT",
-    "x-amz-apigw-id": "E7gKfIaXIAMEdfQ=",
+    "Date": "Thu, 08 Oct 2026 16:09:48 GMT",
+    "x-amz-apigw-id": "E7r8FJ8woAMEbdw=",
     "x-amzn-ErrorType": "NotFoundException",
-    "x-amzn-RequestId": "e18d68ff-c2f8-4092-bf3e-3ce2f74bc97f"
+    "x-amzn-RequestId": "d7924a4a-8e7e-4365-a90f-5c8a5626ddbe"
   },
   "method": "GET",
+  "model_service": "apigateway",
   "operation": "get_rest_api",
   "sdk_error_code": "NotFoundException",
   "service": "apigateway",
   "status": 404,
-  "ts": 1791470965.9343784,
+  "ts": 1791475788.9722836,
   "url": "https://apigateway.us-east-1.amazonaws.com/restapis/microburst-fidelity-doesnotexist-7f3a9"
 }

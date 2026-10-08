@@ -23,7 +23,7 @@ def uri_to_regex(uri: str) -> re.Pattern:
     i = 0
     for match in re.finditer(r"\{[A-Za-z0-9_]+\+?\}", uri):
         out += re.escape(uri[i:match.start()])
-        out += ".*" if match.group().endswith("+}") else "[^/]+"
+        out += ".+" if match.group().endswith("+}") else "[^/]+"
         i = match.end()
     out += re.escape(uri[i:])
     return re.compile(f"^{out}$")
@@ -168,15 +168,25 @@ def match_rest_operation(
     headers: Mapping[str, str],
     body: bytes | None = None,
 ) -> str | None:
-    candidates = []
     lower_headers = {k.lower() for k in headers}
     entries = [
         entry
         for entry in rest_operations(service)
         if entry["method"] == method and entry["regex"].match(path)
     ]
+    if not entries and len(path) > 1 and path.endswith("/"):
+        # SDKs vary on bucket-level trailing slashes (``HEAD /b/``): S3
+        # treats it as the bucket route. Only retry stripped — a key that
+        # genuinely ends in ``/`` already matched ``{Key+}`` above.
+        stripped = path.rstrip("/") or "/"
+        entries = [
+            entry
+            for entry in rest_operations(service)
+            if entry["method"] == method and entry["regex"].match(stripped)
+        ]
     if not entries:
         return None
+    candidates = []
     # Body structure only earns its parse cost when it can break a tie —
     # i.e. some candidate declares body keys or expects a raw payload.
     needs_body = any(

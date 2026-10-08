@@ -1,0 +1,20 @@
+{
+  "body": "<ErrorResponse xmlns=\"http://rds.amazonaws.com/doc/2014-10-31/\">\n  <Error>\n    <Type>Sender</Type>\n    <Code>DBInstanceNotFound</Code>\n    <Message>DBInstance microburst-fidelity-doesnotexist-7f3a9 not found.</Message>\n  </Error>\n  <RequestId>13ac2cf8-bc6d-4494-b70b-960dcf30dbb1</RequestId>\n</ErrorResponse>\n",
+  "body_b64": null,
+  "family": "query",
+  "headers": {
+    "Content-Length": "309",
+    "Content-Type": "text/xml",
+    "Date": "Thu, 08 Oct 2026 16:09:59 GMT",
+    "Strict-Transport-Security": "max-age=31536000",
+    "x-amzn-RequestId": "13ac2cf8-bc6d-4494-b70b-960dcf30dbb1"
+  },
+  "method": "POST",
+  "model_service": "rds",
+  "operation": "describe_db_instances",
+  "sdk_error_code": "DBInstanceNotFound",
+  "service": "rds",
+  "status": 404,
+  "ts": 1791475799.7733316,
+  "url": "https://rds.us-east-1.amazonaws.com/"
+}

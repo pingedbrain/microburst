@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"ResourceNotFoundException\",\"message\":\"Event bus microburst-fidelity-doesnotexist-7f3a9 does not exist.\"}",
+  "body_b64": null,
+  "family": "query-compat",
+  "headers": {
+    "Connection": "close",
+    "Content-Length": "115",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:55 GMT",
+    "x-amzn-RequestId": "2d203719-1dad-4ee6-a289-3dd60c0eff70"
+  },
+  "method": "POST",
+  "model_service": "events",
+  "operation": "describe_event_bus",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "events",
+  "status": 400,
+  "ts": 1791475795.2786326,
+  "url": "https://events.us-east-1.amazonaws.com/"
+}

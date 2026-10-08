@@ -1,0 +1,22 @@
+{
+  "body": "{\"__type\":\"ResourceNotFoundException\",\"message\":\"User pool us-east-1_Xxxxx does not exist.\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "92",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:50 GMT",
+    "x-amzn-ErrorMessage": "User pool us-east-1_Xxxxx does not exist.",
+    "x-amzn-ErrorType": "ResourceNotFoundException:",
+    "x-amzn-RequestId": "c50b3945-60e1-4cd5-a9dc-33062e100075"
+  },
+  "method": "POST",
+  "model_service": "cognito-idp",
+  "operation": "describe_user_pool",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "cognito-idp",
+  "status": 400,
+  "ts": 1791475790.73922,
+  "url": "https://cognito-idp.us-east-1.amazonaws.com/"
+}

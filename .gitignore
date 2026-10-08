@@ -8,3 +8,6 @@ build/
 .apache-magpie-local/
 .claude/
 src/microburst/_version.py
+tools/sdk-matrix/node_modules/
+tools/sdk-matrix/results.json
+tools/sdk-matrix/clients/sdkmatrix

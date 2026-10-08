@@ -12,9 +12,13 @@ from microburst.protocols import register_serializer
 
 # Verified ``__type`` prefixes from live-AWS captures — most json services
 # send the bare code; coral-stack services namespace it. Grows with captures.
+# Note: StepFunctions' auth layer returns ``com.amazon.coral.service#``
+# for AccessDeniedException; not applied broadly since modeled errors
+# likely carry a service namespace (unverified).
 _TYPE_PREFIX = {
     "dynamodb": "com.amazonaws.dynamodb.v20120810#",
     "sqs": "com.amazonaws.sqs#",
+    "cloudwatch": "com.amazonaws.cloudwatch.v2010_08_01#",
 }
 
 

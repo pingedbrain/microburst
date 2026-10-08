@@ -1,0 +1,19 @@
+{
+  "body": "{\"code\":\"ResourceNotFoundException\",\"message\":\"Vault not found for ARN: arn:aws:glacier:us-east-1:000000000000:vaults/microburst-fidelity-doesnotexist-7f3a9\",\"type\":\"Client\"}",
+  "body_b64": null,
+  "family": "rest-json",
+  "headers": {
+    "Content-Length": "174",
+    "Content-Type": "application/json",
+    "Date": "Thu, 08 Oct 2026 16:09:56 GMT",
+    "x-amzn-RequestId": "PGRfYlT_pwIpDpzhxsssQZghRm0AXoRNRi_4Kht3Y3Nq2xk"
+  },
+  "method": "GET",
+  "model_service": "glacier",
+  "operation": "describe_vault",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "glacier",
+  "status": 404,
+  "ts": 1791475796.1123786,
+  "url": "https://glacier.us-east-1.amazonaws.com/-/vaults/microburst-fidelity-doesnotexist-7f3a9"
+}

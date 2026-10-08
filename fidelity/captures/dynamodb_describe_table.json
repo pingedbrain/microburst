@@ -6,16 +6,17 @@
     "Connection": "keep-alive",
     "Content-Length": "169",
     "Content-Type": "application/x-amz-json-1.0",
-    "Date": "Thu, 08 Oct 2026 14:49:18 GMT",
+    "Date": "Thu, 08 Oct 2026 16:09:41 GMT",
     "Server": "Server",
     "x-amz-crc32": "3359352355",
-    "x-amzn-RequestId": "I3NEH40EDA6LC9AI9K9TI32333VV4KQNSO5AEMVJF66Q9ASUAAJG"
+    "x-amzn-RequestId": "U7MM94NN5I26UU5KN71H5P4T3BVV4KQNSO5AEMVJF66Q9ASUAAJG"
   },
   "method": "POST",
+  "model_service": "dynamodb",
   "operation": "describe_table",
   "sdk_error_code": "ResourceNotFoundException",
   "service": "dynamodb",
   "status": 400,
-  "ts": 1791470958.7682803,
+  "ts": 1791475782.0452805,
   "url": "https://dynamodb.us-east-1.amazonaws.com/"
 }

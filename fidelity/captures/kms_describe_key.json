@@ -6,17 +6,18 @@
     "Cache-Control": "no-cache, no-store, must-revalidate, private",
     "Content-Length": "97",
     "Content-Type": "application/x-amz-json-1.1",
-    "Date": "Thu, 08 Oct 2026 14:49:19 GMT",
+    "Date": "Thu, 08 Oct 2026 16:09:42 GMT",
     "Expires": "0",
     "Pragma": "no-cache",
     "connection": "keep-alive",
-    "x-amzn-RequestId": "55482d98-3639-4f8d-939e-be5d17b9dbc5"
+    "x-amzn-RequestId": "dc3ca266-4cc2-4169-8783-d6eed4662397"
   },
   "method": "POST",
+  "model_service": "kms",
   "operation": "describe_key",
   "sdk_error_code": "NotFoundException",
   "service": "kms",
   "status": 400,
-  "ts": 1791470959.3197768,
+  "ts": 1791475782.568438,
   "url": "https://kms.us-east-1.amazonaws.com/"
 }

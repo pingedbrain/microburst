@@ -1,0 +1,21 @@
+{
+  "body": "{\"message\":\"Email identity <microburst-fidelity-doesnotexist-7f3a9> does not exist.\"}",
+  "body_b64": null,
+  "family": "rest-json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "85",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:56 GMT",
+    "x-amzn-ErrorType": "NotFoundException",
+    "x-amzn-RequestId": "fab9ca33-c199-4201-9a10-2953c17cfb04"
+  },
+  "method": "GET",
+  "model_service": "sesv2",
+  "operation": "get_email_identity",
+  "sdk_error_code": "NotFoundException",
+  "service": "sesv2",
+  "status": 404,
+  "ts": 1791475796.8784912,
+  "url": "https://email.us-east-1.amazonaws.com/v2/email/identities/microburst-fidelity-doesnotexist-7f3a9"
+}

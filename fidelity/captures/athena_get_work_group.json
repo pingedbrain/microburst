@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"InvalidRequestException\",\"AthenaErrorCode\":\"INVALID_INPUT\",\"ErrorCode\":\"INVALID_INPUT\",\"Message\":\"WorkGroup is not found.\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "134",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 16:09:51 GMT",
+    "x-amzn-RequestId": "cbcfb30b-48f2-44c5-ab2b-90ad84d0558d"
+  },
+  "method": "POST",
+  "model_service": "athena",
+  "operation": "get_work_group",
+  "sdk_error_code": "InvalidRequestException",
+  "service": "athena",
+  "status": 400,
+  "ts": 1791475791.9902594,
+  "url": "https://athena.us-east-1.amazonaws.com/"
+}

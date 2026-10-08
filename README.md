@@ -224,11 +224,22 @@ python tools/live_fidelity.py report                    # → fidelity/REPORT.md
 ```
 
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
-13/13 probes matching AWS on status, parsed `Error.Code`, and
+28/28 probes matching AWS on status, parsed `Error.Code`, and
 Content-Type — including the details that matter to SDK retry behavior:
 `x-amz-json-1.1` content types, `com.amazonaws.*`-namespaced `__type`,
 rest-json `x-amzn-ErrorType` headers, SQS's `AWS.SimpleQueueService.*`
 query-compat namespace, Route53's `text/xml`, and empty-body HEAD errors.
+
+### Multi-SDK matrix
+
+`tools/sdk-matrix/` runs real SDK clients — **boto3, aws-sdk-js-v3,
+aws-sdk-go-v2** — against a live microburst and verifies what each SDK
+*parsed*, not what we *sent*: error code, HTTP status, and retry attempts
+(measured twice — client-side and via the proxy's fired log). All 12
+scenario cells pass; the README in that directory documents the one
+genuine cross-SDK divergence (codeless HEAD errors: boto3 reports `"503"`,
+Go `"ServiceUnavailable"`, JS `"Unknown"` — the same labels they produce
+against real AWS).
 
 ## Caveats
 

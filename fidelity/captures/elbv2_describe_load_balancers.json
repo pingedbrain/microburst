@@ -1,0 +1,20 @@
+{
+  "body": "<ErrorResponse xmlns=\"http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/\">\n  <Error>\n    <Type>Sender</Type>\n    <Code>ValidationError</Code>\n    <Message>The load balancer name 'microburst-fidelity-doesnotexist-7f3a9' cannot be longer than '32' characters</Message>\n  </Error>\n  <RequestId>e826920b-a8ca-4454-8a18-1e9cbf2d50ce</RequestId>\n</ErrorResponse>\n",
+  "body_b64": null,
+  "family": "query",
+  "headers": {
+    "Connection": "close",
+    "Content-Length": "364",
+    "Content-Type": "text/xml",
+    "Date": "Thu, 08 Oct 2026 16:09:58 GMT",
+    "x-amzn-RequestId": "e826920b-a8ca-4454-8a18-1e9cbf2d50ce"
+  },
+  "method": "POST",
+  "model_service": "elbv2",
+  "operation": "describe_load_balancers",
+  "sdk_error_code": "ValidationError",
+  "service": "elbv2",
+  "status": 400,
+  "ts": 1791475798.830361,
+  "url": "https://elasticloadbalancing.us-east-1.amazonaws.com/"
+}

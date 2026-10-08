@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"com.amazon.coral.service#AccessDeniedException\",\"Message\":\"User: arn:aws:iam::000000000000:user/claude-cli is not authorized to access this resource\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Content-Length": "161",
+    "Content-Type": "application/x-amz-json-1.0",
+    "Date": "Thu, 08 Oct 2026 16:09:50 GMT",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "60de2521-bee2-4511-8449-6dd542ad3999"
+  },
+  "method": "POST",
+  "model_service": "stepfunctions",
+  "operation": "describe_state_machine",
+  "sdk_error_code": "AccessDeniedException",
+  "service": "stepfunctions",
+  "status": 400,
+  "ts": 1791475790.1183395,
+  "url": "https://states.us-east-1.amazonaws.com/"
+}

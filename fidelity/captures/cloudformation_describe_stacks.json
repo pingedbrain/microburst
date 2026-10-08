@@ -1,0 +1,22 @@
+{
+  "body": "<ErrorResponse xmlns=\"http://cloudformation.amazonaws.com/doc/2010-05-15/\">\n  <Error>\n    <Type>Sender</Type>\n    <Code>ValidationError</Code>\n    <Message>Stack with id microburst-fidelity-doesnotexist-7f3a9 does not exist</Message>\n  </Error>\n  <RequestId>8b2672a8-6ddf-4aed-bf06-a18a96dc2933</RequestId>\n</ErrorResponse>\n",
+  "body_b64": null,
+  "family": "query",
+  "headers": {
+    "Cache-Control": "no-store, no-cache",
+    "Content-Length": "324",
+    "Content-Type": "text/xml",
+    "Date": "Thu, 08 Oct 2026 16:10:00 GMT",
+    "Strict-Transport-Security": "max-age=47304000; includeSubDomains",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "8b2672a8-6ddf-4aed-bf06-a18a96dc2933"
+  },
+  "method": "POST",
+  "model_service": "cloudformation",
+  "operation": "describe_stacks",
+  "sdk_error_code": "ValidationError",
+  "service": "cloudformation",
+  "status": 400,
+  "ts": 1791475800.5317748,
+  "url": "https://cloudformation.us-east-1.amazonaws.com/"
+}

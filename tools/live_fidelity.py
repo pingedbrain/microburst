@@ -50,6 +50,33 @@ PROBES: list[tuple[str, str, dict[str, Any], str]] = [
      {"Id": f"/hostedzone/Z{NONEXIST[:14].upper()}"}, "rest-xml"),
     ("lambda", "get_function", {"FunctionName": NONEXIST}, "rest-json"),
     ("apigateway", "get_rest_api", {"restApiId": NONEXIST}, "rest-json"),
+    # — second sweep: more families —
+    ("kinesis", "describe_stream", {"StreamName": NONEXIST}, "json"),
+    ("stepfunctions", "describe_state_machine",
+     {"stateMachineArn":
+      f"arn:aws:states:us-east-1:000000000000:stateMachine:{NONEXIST}"}, "json"),
+    ("cognito-idp", "describe_user_pool",
+     {"UserPoolId": "us-east-1_Xxxxx"}, "json"),
+    ("athena", "get_work_group", {"WorkGroup": NONEXIST}, "json"),
+    ("route53resolver", "get_resolver_endpoint",
+     {"ResolverEndpointId": NONEXIST}, "json"),
+    ("wafv2", "get_web_acl",
+     {"Name": NONEXIST, "Scope": "REGIONAL", "Id": NONEXIST}, "json"),
+    # query-compat JSON on the wire even though the model says rpc-v2-cbor
+    ("cloudwatch", "get_dashboard",
+     {"DashboardName": NONEXIST}, "query-compat"),
+    ("events", "describe_event_bus", {"Name": NONEXIST}, "query-compat"),
+    ("glacier", "describe_vault",
+     {"accountId": "-", "vaultName": NONEXIST}, "rest-json"),
+    ("sesv2", "get_email_identity", {"EmailIdentity": NONEXIST}, "rest-json"),
+    ("pinpoint", "get_app", {"ApplicationId": NONEXIST}, "rest-json"),
+    ("appsync", "get_graphql_api", {"apiId": NONEXIST}, "rest-json"),
+    ("elbv2", "describe_load_balancers",
+     {"Names": [NONEXIST]}, "query"),
+    ("rds", "describe_db_instances",
+     {"DBInstanceIdentifier": NONEXIST}, "query"),
+    ("cloudformation", "describe_stacks",
+     {"StackName": NONEXIST}, "query"),
 ]
 
 
@@ -118,6 +145,7 @@ def capture(services: list[str] | None) -> int:
             cap["body"] = cap["body"].replace(account_id, "000000000000")
         cap.update(
             service=service, operation=method, family=family,
+            model_service=client.meta.service_model.service_name,
             sdk_error_code=code, ts=time.time(),
         )
         fname = CAPTURE_DIR / f"{service}_{method}.json"
@@ -154,7 +182,7 @@ def report() -> int:
         real_status, real_ct = cap["status"], cap["headers"].get("Content-Type", "")
         real_body = cap.get("body") or ""
 
-        model = session.get_service_model(svc)
+        model = session.get_service_model(cap.get("model_service") or svc)
         protocol = model.protocol
         # migrated services speak query-compat JSON on the wire even when the
         # model says cbor — use the wire evidence, same as detection does.
@@ -164,7 +192,8 @@ def report() -> int:
             protocol = "json"
 
         ours_status, ours_headers, ours_body = render_error(
-            svc, code, "(fidelity)", protocol=protocol,
+            cap.get("model_service") or svc, code, "(fidelity)",
+            protocol=protocol,
         )
         if cap.get("method") == "HEAD":
             ours_body = b""
@@ -187,7 +216,7 @@ def report() -> int:
         status_ok = ours_status == real_status
         code_ok = ours_code == real_code
         ct_ok = ours_ct.split(";")[0] == real_ct.split(";")[0]
-        verdict = "✅" if (status_ok and code_ok) else "❌"
+        verdict = "✅" if (status_ok and code_ok and ct_ok) else "❌"
         rows.append((
             svc, op, code, real_status, ours_status,
             real_ct or "—", ours_ct, verdict,

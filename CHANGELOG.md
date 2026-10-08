@@ -4,6 +4,32 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Multi-SDK matrix** — `tools/sdk-matrix/` runs real boto3, aws-sdk-js-v3,
+  and aws-sdk-go-v2 clients against a live microburst and verifies the
+  *parsed* error code, HTTP status, and retry attempts (measured
+  client-side and via the fired log — both must agree). 12/12 cells pass.
+- **Expanded live-AWS probes** — 28 wire captures (was 13), adding
+  Kinesis, StepFunctions, Cognito, Athena, Route53Resolver, WAFv2,
+  CloudWatch (query-compat JSON on the wire), EventBridge, Glacier, SESv2,
+  Pinpoint, AppSync, ELBv2, RDS, CloudFormation. The diff now also checks
+  Content-Type.
+
+### Fixed
+
+- REST matching: `{Label+}` greedy routes no longer match an empty
+  segment — JS S3's `HEAD /bucket/` was detected as `HeadObject` instead
+  of `HeadBucket` (found by the SDK matrix). Bucket-level trailing slashes
+  fall back to the bucket route; keys that genuinely end in `/` still
+  match.
+- `__type` prefix for CloudWatch (`com.amazonaws.cloudwatch.v2010_08_01#`),
+  rest-json body-code flavor for Glacier (`{"code","message","type"}`,
+  no `x-amzn-ErrorType`), and `x-amz-json-1.1` Content-Type for SESv2 —
+  all verified against live captures.
+
 ## [0.4.0] - 2026-10-08
 
 Live-AWS-verified fidelity. Everything in this release was corrected

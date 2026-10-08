@@ -6,15 +6,16 @@
     "Connection": "keep-alive",
     "Content-Length": "133",
     "Content-Type": "application/json",
-    "Date": "Thu, 08 Oct 2026 14:49:25 GMT",
+    "Date": "Thu, 08 Oct 2026 16:09:48 GMT",
     "x-amzn-ErrorType": "ResourceNotFoundException",
-    "x-amzn-RequestId": "9f34cb35-89c0-41a3-995f-bcfad16f9843"
+    "x-amzn-RequestId": "d663398f-e531-40d7-9b88-76881983215e"
   },
   "method": "GET",
+  "model_service": "lambda",
   "operation": "get_function",
   "sdk_error_code": "ResourceNotFoundException",
   "service": "lambda",
   "status": 404,
-  "ts": 1791470965.3006485,
+  "ts": 1791475788.427927,
   "url": "https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/microburst-fidelity-doesnotexist-7f3a9"
 }

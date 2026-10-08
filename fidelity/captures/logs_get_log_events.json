@@ -5,14 +5,15 @@
   "headers": {
     "Content-Length": "90",
     "Content-Type": "application/x-amz-json-1.1",
-    "Date": "Thu, 08 Oct 2026 14:49:20 GMT",
-    "x-amzn-RequestId": "745de95f-7fe2-4e54-b4ca-3df0eed0cf19"
+    "Date": "Thu, 08 Oct 2026 16:09:43 GMT",
+    "x-amzn-RequestId": "8b45f5ca-672b-4f2f-8a02-73938eb80162"
   },
   "method": "POST",
+  "model_service": "logs",
   "operation": "get_log_events",
   "sdk_error_code": "ResourceNotFoundException",
   "service": "logs",
   "status": 400,
-  "ts": 1791470960.4781916,
+  "ts": 1791475783.6785183,
   "url": "https://logs.us-east-1.amazonaws.com/"
 }

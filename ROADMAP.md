@@ -136,8 +136,14 @@ query-marker + required-header disambiguation.
   iterates every unique modeled error wire code per service (~90k shapes
   deduped), asserts `Error.Code` round-trips through botocore's parser AND
   that status matches the modeled `httpStatusCode`.
-- Multi-SDK matrix — boto3, aws-sdk-js-v3, aws-sdk-java, aws-sdk-go v2.
-  Same wire format, different header quirks. `[size:M]`
+- ~~Multi-SDK matrix~~ ✅ — `tools/sdk-matrix/` runs boto3, aws-sdk-js-v3,
+  and aws-sdk-go-v2 against a live microburst with `p=1.0` rules and
+  verifies parsed error code, status, and retry attempts (measured both
+  client-side and via the fired log). 12/12 cells pass — including the
+  namespaced `AWS.SimpleQueueService.*` code all three SDKs read from
+  `x-amzn-query-error`. It also found a real detection bug (JS S3 sends
+  `HEAD /bucket/` — greedy `{Key+}` was swallowing the empty key segment).
+  aws-sdk-java remains as a CI-only cell (no local toolchain).
 - ~~REST collision sweep~~ ✅ — `detection/sweep.py` synthesizes the minimal
   request each of the ~10.4k REST ops declares and asserts the matcher
   resolves it back to itself; `fidelity/rest_sweep.json` is the committed
