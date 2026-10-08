@@ -8,7 +8,7 @@
 <meta property="og:title" content="microburst — chaos that speaks AWS">
 <meta property="og:description" content="A wire-level fault-injection proxy. Real SDK retry behavior, not mocks.">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%236366f1' d='M24 12a8 8 0 0 0-15.5-2.5A6 6 0 0 0 9 21.5h13a6.5 6.5 0 0 0 2-9.5z'/%3E%3Cpath fill='%23f59e0b' d='M16 13l-4 8h3l-2 7 7-10h-3.5L19 13z'/%3E%3C/svg%3E">
+<link rel="icon" href="mascot.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
@@ -72,7 +72,7 @@ nav {
 }
 nav .wrap { display: flex; align-items: center; gap: 12px; height: 60px; }
 .logo { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 17px; letter-spacing: -.02em; color: var(--text); text-decoration: none; }
-.logo svg { filter: drop-shadow(0 0 8px rgba(99,102,241,.5)); }
+.logo img { width: 26px; height: 26px; border-radius: 7px; object-fit: cover; box-shadow: 0 0 12px rgba(99,102,241,.4); }
 nav .links { margin-left: auto; display: flex; gap: 4px; align-items: center; }
 nav .links a {
   color: var(--text-dim); text-decoration: none; font-size: 13.5px; font-weight: 500;
@@ -93,9 +93,14 @@ nav .links a.gh {
   filter: blur(10px);
 }
 .mascot {
-  width: 168px; height: auto; margin: 0 auto 6px; display: block;
-  mix-blend-mode: screen;
-  filter: drop-shadow(0 12px 40px rgba(99,102,241,.45));
+  width: 168px; height: 168px; margin: 0 auto 14px; display: block;
+  object-fit: cover; object-position: center;
+  border-radius: 30px;
+  border: 1px solid rgba(99,102,241,.35);
+  box-shadow:
+    0 0 0 1px rgba(8,8,15,.6),
+    0 24px 60px -18px rgba(99,102,241,.55),
+    0 0 80px -20px rgba(245,158,11,.25);
   animation: float 5.5s ease-in-out infinite;
 }
 @keyframes float { 50% { transform: translateY(-9px); } }
@@ -336,7 +341,7 @@ footer a:hover { color: var(--amber-soft); }
 <nav>
   <div class="wrap">
     <a class="logo" href="#">
-      <svg width="24" height="24" viewBox="0 0 32 32"><path fill="#6366f1" d="M24 12a8 8 0 0 0-15.5-2.5A6 6 0 0 0 9 21.5h13a6.5 6.5 0 0 0 2-9.5z"/><path fill="#f59e0b" d="M16 13l-4 8h3l-2 7 7-10h-3.5L19 13z"/></svg>
+      <img src="mascot.png" alt="Nimbus">
       microburst
     </a>
     <div class="links">
@@ -355,7 +360,7 @@ footer a:hover { color: var(--amber-soft); }
 <header class="hero">
   <div class="wrap">
     <div class="bolt-glow"></div>
-    <img class="mascot" src="mascot.jpeg" alt="Nimbus — a storm cloud striking a server rack with lightning">
+    <img class="mascot" src="mascot.png" alt="Nimbus — a storm cloud striking a server rack with lightning">
     <div class="eyebrow"><span class="dot"></span> wire-level chaos for AWS SDKs</div>
     <h1>Chaos that<br><span class="storm">speaks AWS.</span></h1>
     <p class="sub">
