@@ -6,7 +6,7 @@ import java.util.Set;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
-import software.amazon.awssdk.core.exception.SdkServiceException;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.interceptor.Context;
 import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
 import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
@@ -16,7 +16,6 @@ import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lambda.model.GetFunctionRequest;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
@@ -80,7 +79,7 @@ public final class MatrixClient {
         try {
             call.run();
             emit(scenario, null, 200, c.n, "no error");
-        } catch (SdkServiceException e) {
+        } catch (AwsServiceException e) {
             emit(scenario, e.awsErrorDetails().errorCode(),
                  e.awsErrorDetails().sdkHttpResponse().statusCode(),
                  c.n, null);
@@ -131,8 +130,7 @@ public final class MatrixClient {
             var client = S3Client.builder()
                 .endpointOverride(ep).region(Region.US_EAST_1)
                 .credentialsProvider(creds())
-                .serviceConfiguration(S3Configuration.builder()
-                    .pathStyleEnabled(true).build())
+                .forcePathStyle(true)
                 .overrideConfiguration(override(c)).build();
             run("s3-slowdown",
                 () -> client.headBucket(
