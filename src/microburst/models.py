@@ -8,6 +8,7 @@ endpoint prefixes. Everything is lazy and cached.
 from __future__ import annotations
 
 from functools import cache
+from typing import Any
 
 import botocore.session
 
@@ -256,8 +257,13 @@ def service_for_target_prefix(prefix: str) -> str | None:
     return _TARGET_PREFIXES.get(prefix)
 
 
-def get_service_model(service: str):
-    """Return the botocore ServiceModel for a service name, or None."""
+def get_service_model(service: str | None) -> Any | None:
+    """Return the botocore ServiceModel for a service name, or None.
+
+    ``Any`` deliberately — botocore models are a dynamic boundary
+    (CachedProperty descriptors, partial stubs)."""
+    if service is None:
+        return None
     if service in _model_cache:
         return _model_cache[service]
     try:
@@ -268,7 +274,7 @@ def get_service_model(service: str):
     return model
 
 
-def get_protocol(service: str) -> str | None:
+def get_protocol(service: str | None) -> str | None:
     model = get_service_model(service)
     if model is None:
         return None

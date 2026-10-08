@@ -16,15 +16,19 @@ import re
 import secrets
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import aiohttp
 from aiohttp import web
 
-try:
+if TYPE_CHECKING:
     import httpx
-except ImportError:  # optional — only needed for --http2
-    httpx = None
+else:
+    try:
+        import httpx
+    except ImportError:  # optional — only needed for --http2
+        httpx = None
 
 logger = logging.getLogger("microburst.forward")
 
@@ -174,7 +178,7 @@ class Upstream:
         self.resign = resign
         self.http2 = http2
         self.session: aiohttp.ClientSession | None = None
-        self.hx = None  # httpx.AsyncClient when http2
+        self.hx: httpx.AsyncClient | None = None  # set when http2
 
     async def start(self) -> None:
         if self.http2:
@@ -236,6 +240,7 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None,
     ) -> web.StreamResponse:
+        assert self.hx is not None  # relay() only routes here when set
         url = self.base_url + request.rel_url.raw_path_qs
         headers = self._outbound_headers(request)
 

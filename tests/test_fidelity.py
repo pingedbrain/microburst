@@ -10,6 +10,8 @@ envelope correctly enough for the SDK parser to recover the error code.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from botocore.parsers import create_parser
 from botocore.session import Session
@@ -20,7 +22,7 @@ _session = Session()
 _SERVICES = sorted(_session.get_available_services())
 
 
-def _model(service):
+def _model(service) -> Any:
     return _session.get_service_model(service)
 
 

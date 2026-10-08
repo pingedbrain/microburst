@@ -122,6 +122,7 @@ def test_latency_gaussian_clamped():
           "stddev": 50, "min": 100, "max": 900}}]
     )
     rule = engine.rules[0]
+    assert rule.latency is not None
     samples = [rule.latency.sample() for _ in range(500)]
     assert all(100 <= s <= 900 for s in samples)
     # concentrated near the mean, not uniform across [100, 900]
@@ -135,6 +136,7 @@ def test_latency_spike():
           "spike_ms": 3000, "spike_p": 0.2}}]
     )
     rule = engine.rules[0]
+    assert rule.latency is not None
     samples = [rule.latency.sample() for _ in range(500)]
     spikes = [s for s in samples if s >= 3000]
     baseline = [s for s in samples if s < 3000]
@@ -145,6 +147,7 @@ def test_latency_spike():
 def test_latency_uniform_still_default():
     from microburst.rules import from_dict
     rule = from_dict({"latency": {"min": 5, "max": 10}})
+    assert rule.latency is not None
     assert rule.latency.dist == "uniform"
     samples = [rule.latency.sample() for _ in range(100)]
     assert all(5 <= s <= 10 for s in samples)

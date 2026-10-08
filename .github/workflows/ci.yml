@@ -22,5 +22,8 @@ jobs:
         run: uv pip install --python .venv/bin/python -e ".[test]"
       - name: Lint
         run: .venv/bin/python -m ruff check src/ tests/
+      - name: Typecheck
+        if: matrix.python == '3.13'
+        run: .venv/bin/python -m pyright
       - name: Test
         run: .venv/bin/python -m pytest tests/ -q

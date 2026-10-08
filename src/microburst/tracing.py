@@ -11,7 +11,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 
 try:
-    from opentelemetry import trace
+    from opentelemetry import trace  # pyright: ignore[reportMissingImports]
 
     _tracer = trace.get_tracer("microburst")
 except ImportError:  # pragma: no cover - depends on optional extra

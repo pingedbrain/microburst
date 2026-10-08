@@ -186,7 +186,7 @@ def test_header_yaml_int_normalized():
 # -- body matchers ----------------------------------------------------------
 
 
-def _ctx_body(body: bytes, service="dynamodb"):
+def _ctx_body(body: bytes | None, service="dynamodb"):
     return RequestContext(service=service, operation="PutItem", body=body)
 
 

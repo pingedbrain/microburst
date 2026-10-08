@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from microburst.rules import Decision
 
+# Sentinel for RequestContext._parsed_body: distinguishes "not parsed
+# yet" from "parsed, was not structured".
+BODY_UNSET: Any = object()
+
 
 @dataclass
 class RequestContext:
@@ -41,6 +45,10 @@ class RequestContext:
 
     # Rule decision (filled by the engine before effects run)
     decision: Decision | None = None
+
+    # Lazily parsed body for body matchers (rules._body_value caches the
+    # result here).
+    _parsed_body: Any = field(default=BODY_UNSET, repr=False)
 
 
 # Backwards-compatible name used throughout the pre-0.1 codebase.

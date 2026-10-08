@@ -15,12 +15,16 @@ import time
 import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl
 
 import jmespath
 
-from microburst.core.context import RequestContext
+from microburst.core.context import BODY_UNSET, RequestContext
 from microburst.models import operation_error_names
+
+if TYPE_CHECKING:
+    from microburst.forward import ResponseFault
 
 _ids = itertools.count(1)
 
@@ -81,7 +85,7 @@ class Rule:
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
     created_ts: float = field(default_factory=time.time)
-    _body_expr: object = field(default=None, repr=False)
+    _body_expr: Any = field(default=None, repr=False)  # jmespath Parser
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
@@ -133,7 +137,7 @@ class Decision:
     latency_ms: float
     timeout_ms: float | None
     reset: bool
-    response_fault: object | None = None  # ResponseFault — built at fire time
+    response_fault: ResponseFault | None = None  # built at fire time
 
 
 def _latency_from_dict(data: dict) -> Latency:
@@ -202,7 +206,7 @@ def from_dict(data: dict) -> Rule:
     if rule.body is not None:
         try:
             rule._body_expr = jmespath.compile(rule.body)
-        except jmespath.exceptions.JMESPathError as e:
+        except Exception as e:  # any compile failure → bad rule
             raise ValueError(f"invalid body jmespath {rule.body!r}: {e}") from e
     return rule
 
@@ -375,16 +379,14 @@ PRESETS: dict[str, dict] = {
 }
 
 
-_UNPARSED = object()
-
 
 def _body_value(info: RequestContext):
     """Parse the request body for jmespath — JSON first, then form-encoded
     (query-protocol services post Action&Param= form bodies), then XML
     (rest-xml: S3 tagging/ACL/lifecycle payloads). Cached on the context
     so a rule chain parses at most once."""
-    cached = getattr(info, "_parsed_body", _UNPARSED)
-    if cached is not _UNPARSED:
+    cached = info._parsed_body
+    if cached is not BODY_UNSET:
         return cached
     parsed = None
     if info.body:
@@ -476,7 +478,7 @@ class FiredEvent:
         }
 
 
-def _response_fault(spec: dict | None):
+def _response_fault(spec: dict | None) -> ResponseFault | None:
     """Build a fresh ResponseFault per fire — resolve() mutates it in place."""
     if spec is None:
         return None

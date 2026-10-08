@@ -28,7 +28,9 @@ class ServerThread:
         site = web.TCPSite(runner, "127.0.0.1", 0)
         self.loop.run_until_complete(site.start())
         self._runner = runner
-        self.port = site._server.sockets[0].getsockname()[1]
+        server = site._server
+        assert server is not None
+        self.port = server.sockets[0].getsockname()[1]  # pyright: ignore[reportAttributeAccessIssue]
         self._started.set()
         self.loop.run_forever()
         self.loop.run_until_complete(runner.cleanup())

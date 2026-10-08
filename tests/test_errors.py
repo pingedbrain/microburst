@@ -24,7 +24,7 @@ def test_query_protocol_xml():
     )
     assert headers["Content-Type"] == "text/xml"
     root = ET.fromstring(body)
-    assert root.find("Error/Code").text == "Throttling"
+    assert root.findtext("Error/Code") == "Throttling"
     assert root.find("RequestId") is not None
 
 
@@ -34,7 +34,7 @@ def test_rest_xml_s3():
     assert "x-amz-request-id" in headers
     assert "x-amz-id-2" in headers
     root = ET.fromstring(body)
-    assert root.find("Code").text == "SlowDown"
+    assert root.findtext("Code") == "SlowDown"
 
 
 def test_rest_json_uses_errortype_header():
