@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "stepfunctions",
   "operation": "describe_state_machine",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "60de2521-bee2-4511-8449-6dd542ad3999"
+    },
+    "server": null
+  },
   "sdk_error_code": "AccessDeniedException",
   "service": "stepfunctions",
   "status": 400,

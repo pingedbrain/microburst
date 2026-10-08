@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "route53resolver",
   "operation": "get_resolver_endpoint",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "6c70077e-e61b-4488-b8aa-0118267b3f8b"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "route53resolver",
   "status": 400,

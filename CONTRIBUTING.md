@@ -19,6 +19,21 @@ ruff check src/ tests/
 - The control API is intentionally unauthenticated (local dev tool). Don't
   add features that make it safe to expose — document instead.
 
+## Refreshing wire evidence
+
+The repo never needs AWS credentials in CI — captures are crowdsourced:
+
+- Have *any* AWS account? `AWS_PROFILE=you microburst fidelity capture`
+  and commit the regenerated `fidelity/captures/*.json`. Account ids are
+  redacted; each capture carries a `provenance` block (AWS request ids,
+  region, botocore version) so reviewers can sanity-check it's real wire.
+- A weekly `model-drift` workflow regenerates `fidelity/models_snapshot.json`
+  against the latest botocore and opens an issue when the fidelity-relevant
+  model surface changes — that's the signal a re-capture is due.
+- `fidelity/protocol/` vendors botocore's AWS-authored conformance
+  fixtures; refresh with `python tools/fetch_protocol_fixtures.py`
+  after bumping botocore (`--check` verifies what's vendored).
+
 ## Releasing
 
 Versioning is **tag-driven** (`hatch-vcs`): the git tag is the single source

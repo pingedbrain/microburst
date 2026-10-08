@@ -14,6 +14,16 @@
   "method": "POST",
   "model_service": "cognito-idp",
   "operation": "describe_user_pool",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "c50b3945-60e1-4cd5-a9dc-33062e100075"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "cognito-idp",
   "status": 400,

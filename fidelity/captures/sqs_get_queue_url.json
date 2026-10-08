@@ -13,6 +13,16 @@
   "method": "POST",
   "model_service": "sqs",
   "operation": "get_queue_url",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "8d56ad0a-671d-5858-b17e-ce4ba5954c27"
+    },
+    "server": null
+  },
   "sdk_error_code": "AWS.SimpleQueueService.NonExistentQueue",
   "service": "sqs",
   "status": 400,

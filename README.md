@@ -256,7 +256,17 @@ profile/env) and diffs them against what `render_error` produces:
 ```bash
 AWS_PROFILE=you microburst fidelity capture   # raw wire captures
 microburst fidelity report                    # → fidelity/REPORT.md
+microburst fidelity snapshot                  # model digests (no creds)
 ```
+
+The evidence stays fresh without anyone owning AWS credentials:
+a weekly `model-drift` workflow regenerates `fidelity/models_snapshot.json`
+against the latest botocore (AWS's models are upstream of the wire) and
+opens an issue when error shapes, routes, or protocol metadata move —
+that's the signal to re-capture. `fidelity/protocol/` vendors AWS's own
+protocol-compliance fixtures (from botocore's conformance suite), so the
+envelopes are also checked against AWS-authored wire expectations on
+every test run.
 
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
 28/28 probes matching AWS on status, parsed `Error.Code`, and

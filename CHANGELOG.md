@@ -4,6 +4,26 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Credential-free fidelity freshness** — `microburst fidelity snapshot`
+  digests the fidelity-relevant model surface (protocol metadata,
+  routes, error codes/`httpStatusCode`, error members) for all ~436
+  services into `fidelity/models_snapshot.json`; a weekly `model-drift`
+  workflow regenerates it against the latest botocore and opens an
+  issue on drift — the signal to re-capture. No AWS creds in CI.
+- **AWS-authored protocol fixtures** — `tools/fetch_protocol_fixtures.py`
+  vendors botocore's conformance fixtures (error wire responses per
+  protocol) into `fidelity/protocol/`; a test parses our rendered
+  errors with each fixture's own model and asserts the expected
+  `Error.Code`/members.
+- **Capture provenance** — every capture now records AWS request ids,
+  region, and botocore version so reviewers can verify real wire
+  provenance (account ids still redacted). `fidelity
+  backfill-provenance` upgrades old captures in place.
+
 ## [0.5.1] - 2026-10-08
 
 ### Added

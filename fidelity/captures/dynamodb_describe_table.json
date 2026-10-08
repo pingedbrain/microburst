@@ -14,6 +14,16 @@
   "method": "POST",
   "model_service": "dynamodb",
   "operation": "describe_table",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "U7MM94NN5I26UU5KN71H5P4T3BVV4KQNSO5AEMVJF66Q9ASUAAJG"
+    },
+    "server": "Server"
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "dynamodb",
   "status": 400,

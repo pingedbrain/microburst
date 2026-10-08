@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "sns",
   "operation": "get_topic_attributes",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "e5d6dc46-5337-58bb-b052-bf0791bfd83f"
+    },
+    "server": null
+  },
   "sdk_error_code": "InvalidClientTokenId",
   "service": "sns",
   "status": 403,

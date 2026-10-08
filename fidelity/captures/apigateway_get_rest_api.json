@@ -14,6 +14,16 @@
   "method": "GET",
   "model_service": "apigateway",
   "operation": "get_rest_api",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "d7924a4a-8e7e-4365-a90f-5c8a5626ddbe"
+    },
+    "server": null
+  },
   "sdk_error_code": "NotFoundException",
   "service": "apigateway",
   "status": 404,

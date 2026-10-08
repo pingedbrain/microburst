@@ -13,6 +13,16 @@
   "method": "GET",
   "model_service": "sesv2",
   "operation": "get_email_identity",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "fab9ca33-c199-4201-9a10-2953c17cfb04"
+    },
+    "server": null
+  },
   "sdk_error_code": "NotFoundException",
   "service": "sesv2",
   "status": 404,

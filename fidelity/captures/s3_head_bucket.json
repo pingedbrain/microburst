@@ -13,6 +13,17 @@
   "method": "HEAD",
   "model_service": "s3",
   "operation": "head_bucket",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amz-id-2": "fBYiXHhJ7ju0nEaxX27hC5dsDwEeEIoWqbftsPo3rdLaG6uGmZPnQV8ihChlPs0M49r7nwOOyNQ=",
+      "x-amz-request-id": "0F8EY0Y890EM2JC8"
+    },
+    "server": "AmazonS3"
+  },
   "sdk_error_code": "404",
   "service": "s3",
   "status": 404,

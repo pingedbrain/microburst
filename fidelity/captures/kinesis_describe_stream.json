@@ -13,6 +13,17 @@
   "method": "POST",
   "model_service": "kinesis",
   "operation": "describe_stream",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amz-id-2": "dSvaUfe/5W1+1QMbwb6uIPuZYwEamSMc3qzFm2JhSdQGBOj5CpKUtItixo5QG9vtJfgFJRxpha3xGF2oOOsw1xekbs6U01ps",
+      "x-amzn-requestid": "d1fb52c9-f5ec-48b5-b2ba-90447196d06b"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "kinesis",
   "status": 400,

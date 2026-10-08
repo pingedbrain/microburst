@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "events",
   "operation": "describe_event_bus",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "2d203719-1dad-4ee6-a289-3dd60c0eff70"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "events",
   "status": 400,

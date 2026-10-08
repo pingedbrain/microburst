@@ -11,6 +11,16 @@
   "method": "POST",
   "model_service": "iam",
   "operation": "get_user",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "53e05da2-1851-40e5-b006-c7b2bbf40e4d"
+    },
+    "server": null
+  },
   "sdk_error_code": "NoSuchEntity",
   "service": "iam",
   "status": 404,

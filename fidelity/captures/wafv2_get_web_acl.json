@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "wafv2",
   "operation": "get_web_acl",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "d58804e6-e6d2-4a00-8e99-f4cb57ea2a6c"
+    },
+    "server": null
+  },
   "sdk_error_code": "ValidationException",
   "service": "wafv2",
   "status": 400,

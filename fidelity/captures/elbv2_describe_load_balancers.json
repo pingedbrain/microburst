@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "elbv2",
   "operation": "describe_load_balancers",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "e826920b-a8ca-4454-8a18-1e9cbf2d50ce"
+    },
+    "server": null
+  },
   "sdk_error_code": "ValidationError",
   "service": "elbv2",
   "status": 400,

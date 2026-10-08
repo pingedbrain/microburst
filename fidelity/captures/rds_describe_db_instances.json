@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "rds",
   "operation": "describe_db_instances",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "13ac2cf8-bc6d-4494-b70b-960dcf30dbb1"
+    },
+    "server": null
+  },
   "sdk_error_code": "DBInstanceNotFound",
   "service": "rds",
   "status": 404,

@@ -27,6 +27,16 @@
   "method": "GET",
   "model_service": "appsync",
   "operation": "get_graphql_api",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "97b8c235-43a0-4c8e-a607-7086bd025494"
+    },
+    "server": null
+  },
   "sdk_error_code": "NotFoundException",
   "service": "appsync",
   "status": 404,

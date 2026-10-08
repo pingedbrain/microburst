@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "athena",
   "operation": "get_work_group",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "cbcfb30b-48f2-44c5-ab2b-90ad84d0558d"
+    },
+    "server": null
+  },
   "sdk_error_code": "InvalidRequestException",
   "service": "athena",
   "status": 400,

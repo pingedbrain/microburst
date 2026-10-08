@@ -11,6 +11,16 @@
   "method": "POST",
   "model_service": "logs",
   "operation": "get_log_events",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "8b45f5ca-672b-4f2f-8a02-73938eb80162"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "logs",
   "status": 400,

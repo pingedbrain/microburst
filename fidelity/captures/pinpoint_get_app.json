@@ -21,6 +21,16 @@
   "method": "GET",
   "model_service": "pinpoint",
   "operation": "get_app",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "d2f82449-ba7d-4cbd-9b2b-cbcf6aba527f"
+    },
+    "server": null
+  },
   "sdk_error_code": "NotFoundException",
   "service": "pinpoint",
   "status": 404,

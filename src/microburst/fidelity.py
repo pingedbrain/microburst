@@ -151,6 +151,7 @@ def capture(services: list[str] | None, out_dir: Path) -> int:
             service=service, operation=method, family=family,
             model_service=client.meta.service_model.service_name,
             sdk_error_code=code, ts=time.time(),
+            provenance=_provenance(cap["headers"]),
         )
         fname = capture_dir / f"{service}_{method}.json"
         fname.write_text(json.dumps(cap, indent=2, sort_keys=True))
@@ -158,6 +159,118 @@ def capture(services: list[str] | None, out_dir: Path) -> int:
         n_ok += 1
     print(f"{n_ok} captures → {capture_dir}")
     return 0 if n_ok else 1
+
+
+# Headers AWS stamps on real responses — the bits that let a reviewer
+# sanity-check a capture is genuine wire evidence.
+_REQUEST_ID_HEADERS = (
+    "x-amzn-requestid", "x-amzn-request-id",
+    "x-amz-request-id", "x-amz-id-2", "x-amz-requestid",
+)
+
+
+def _provenance(headers: dict) -> dict:
+    """Evidence block: which response ids AWS stamped + capture context.
+
+    No account identifiers — enough for a reviewer to see this came off
+    real AWS wire, not a stub."""
+    import botocore
+
+    lower = {k.lower(): v for k, v in headers.items()}
+    return {
+        "request_ids": {
+            k: lower[k] for k in _REQUEST_ID_HEADERS if k in lower
+        },
+        "server": lower.get("server"),
+        "region": "us-east-1",
+        "botocore": botocore.__version__,
+        "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def backfill_provenance(out_dir: Path) -> int:
+    """Add ``provenance`` blocks to captures taken before the field
+    existed — request ids are already in the stored headers."""
+    n = 0
+    for path in sorted((out_dir / "captures").glob("*.json")):
+        cap = json.loads(path.read_text())
+        prov = _provenance(cap.get("headers", {}))
+        prov["botocore"] = None          # unknown — predates provenance
+        prov["backfilled"] = True
+        cap["provenance"] = prov
+        path.write_text(json.dumps(cap, indent=2, sort_keys=True) + "\n")
+        n += 1
+    print(f"provenance backfilled on {n} captures")
+    return 0
+
+
+_META_KEYS = (
+    "protocol", "protocols", "jsonVersion", "endpointPrefix",
+    "targetPrefix", "serviceId", "signingName", "signatureVersion",
+    "awsQueryCompatible", "serviceAbbreviation",
+)
+
+
+def model_snapshot(out_dir: Path) -> int:
+    """Digest the fidelity-relevant surface of every botocore model.
+
+    Per-service sha256 over: metadata (protocol/prefixes/query-compat),
+    each operation's http route + error refs, and every error shape's
+    ``error`` trait (code/httpStatusCode) + member names. Documentation
+    and unrelated shapes are excluded so the digest only moves when the
+    *error wire contract* moves.
+
+    Pair with the model-drift workflow: regenerate against the latest
+    botocore release and ``git diff`` — drift means it's time to
+    re-capture. No AWS credentials needed.
+    """
+    import hashlib
+
+    from botocore.session import Session
+
+    session = Session()
+    loader = session.get_component("data_loader")
+    digests: dict[str, str] = {}
+    for svc in sorted(session.get_available_services()):
+        try:
+            model = loader.load_service_model(svc, "service-2")
+        except Exception as e:  # noqa: BLE001 — partial/absent model
+            print(f"  {svc}: model load failed ({e})")
+            continue
+        subset = {
+            "meta": {
+                k: model.get("metadata", {}).get(k)
+                for k in _META_KEYS
+                if k in model.get("metadata", {})
+            },
+            "ops": {
+                name: {
+                    "http": op.get("http"),
+                    "errors": [ref.get("shape") for ref in op.get("errors", [])],
+                }
+                for name, op in sorted(model.get("operations", {}).items())
+            },
+            "error_shapes": {
+                name: {
+                    "error": sh.get("error"),
+                    "members": sorted(sh.get("members", {})),
+                }
+                for name, sh in sorted(model.get("shapes", {}).items())
+                if sh.get("exception") or sh.get("error")
+            },
+        }
+        digests[svc] = hashlib.sha256(
+            json.dumps(subset, sort_keys=True, default=str).encode()
+        ).hexdigest()
+
+    import botocore
+
+    snap = {"botocore": botocore.__version__, "services": digests}
+    path = out_dir / "models_snapshot.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(snap, indent=2, sort_keys=True) + "\n")
+    print(f"{len(digests)} service digests → {path}")
+    return 0
 
 
 def _top_keys(body: str | None) -> list[str]:
@@ -300,7 +413,10 @@ def fidelity_main(argv: list[str]) -> int:
         prog="microburst fidelity",
         description=(__doc__ or "").splitlines()[0],
     )
-    ap.add_argument("command", choices=["capture", "report"])
+    ap.add_argument(
+        "command",
+        choices=["capture", "report", "snapshot", "backfill-provenance"],
+    )
     ap.add_argument(
         "--services", default=None,
         help="comma-separated service subset for capture",
@@ -317,4 +433,8 @@ def fidelity_main(argv: list[str]) -> int:
     )
     if args.command == "capture":
         return capture(services, out_dir)
-    return report(out_dir)
+    if args.command == "report":
+        return report(out_dir)
+    if args.command == "snapshot":
+        return model_snapshot(out_dir)
+    return backfill_provenance(out_dir)

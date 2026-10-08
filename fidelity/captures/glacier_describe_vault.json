@@ -11,6 +11,16 @@
   "method": "GET",
   "model_service": "glacier",
   "operation": "describe_vault",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "PGRfYlT_pwIpDpzhxsssQZghRm0AXoRNRi_4Kht3Y3Nq2xk"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "glacier",
   "status": 404,

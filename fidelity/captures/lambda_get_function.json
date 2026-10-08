@@ -13,6 +13,16 @@
   "method": "GET",
   "model_service": "lambda",
   "operation": "get_function",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "d663398f-e531-40d7-9b88-76881983215e"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFoundException",
   "service": "lambda",
   "status": 404,

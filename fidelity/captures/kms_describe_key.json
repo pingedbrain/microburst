@@ -15,6 +15,16 @@
   "method": "POST",
   "model_service": "kms",
   "operation": "describe_key",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "dc3ca266-4cc2-4169-8783-d6eed4662397"
+    },
+    "server": null
+  },
   "sdk_error_code": "NotFoundException",
   "service": "kms",
   "status": 400,

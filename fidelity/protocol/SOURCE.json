@@ -1,0 +1,17 @@
+{
+  "botocore_tag": "1.43.109",
+  "origin": "https://github.com/boto/botocore",
+  "path": "tests/unit/protocols/output",
+  "sha256": {
+    "ec2.json": "32851119cf1b3167c63b493c744a1513faee87415901c38093542243895d9333",
+    "json.json": "b35dd6a7cccee9c2e2e09e168bf6ad05e74fe886090225644319730c73774003",
+    "json_1_0-query-compatible.json": "4d6fcc5cc1ca78d62598554e52c099455277d0e9232615d2b25f19cbdf613e9a",
+    "json_1_0.json": "ec08812c91c9a8378b45bde448545a1a7a26e73a251b31c494bff68aac4807e0",
+    "query.json": "5844c9c56f199aaac0168ceeca1b9e831ab7cde0ae0e80a567b44d0775cdc39f",
+    "rest-json.json": "8bb2e1ef99f3a142597da779f89045928c19c570d8f9d7060a8b51a629e95450",
+    "rest-xml.json": "3da2d5415a428cc504b9a608dacb9bfe8ed223e1385f46720dbc99dc643625ad",
+    "smithy-rpc-v2-cbor-non-query-compatible.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "smithy-rpc-v2-cbor-query-compatible.json": "df6c4f9188568da655610736c41fc0897b9475ebb80d5b641eb9d2b939733392",
+    "smithy-rpc-v2-cbor.json": "f4aef35440b68104f55bef56c259e19c547013b50e9a2860fa108b6be138d5f7"
+  }
+}

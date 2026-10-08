@@ -16,6 +16,16 @@
   "method": "POST",
   "model_service": "ec2",
   "operation": "describe_instances",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "e5bdc4f4-97b2-4d5f-a1ae-452bfac1aec4"
+    },
+    "server": "AmazonEC2"
+  },
   "sdk_error_code": "InvalidInstanceID.Malformed",
   "service": "ec2",
   "status": 400,

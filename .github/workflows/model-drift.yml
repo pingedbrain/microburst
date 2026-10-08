@@ -1,0 +1,67 @@
+name: model-drift
+
+# Weekly botocore drift watch — needs NO AWS credentials. botocore ships
+# AWS's service models; when the fidelity-relevant surface (protocols,
+# error shapes, routes) changes, the committed digests no longer match
+# and we open an issue: that's the signal to re-capture wire evidence.
+# `git diff` tells exactly which services drifted.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install (latest botocore)
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -e . --upgrade-package botocore
+      - name: Regenerate model snapshot
+        run: .venv/bin/python -m microburst fidelity snapshot --dir fidelity
+      - name: Diff against committed snapshot
+        id: diff
+        run: |
+          if git diff --quiet fidelity/models_snapshot.json; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "no model drift"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            git diff fidelity/models_snapshot.json > /tmp/drift.diff || true
+          fi
+      - name: Open or bump drift issue
+        if: steps.diff.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create model-drift --color BFD4F2 --force || true
+          BOTOCORE=$(python3 -c "import json;print(json.load(open('fidelity/models_snapshot.json'))['botocore'])")
+          EXISTING=$(gh issue list --label model-drift --state open --json number --jq '.[0].number' || true)
+          BODY=$(cat <<EOF
+          Botocore **$BOTOCORE** changed the fidelity-relevant model surface
+          (protocol metadata, error shapes, or routes) for services whose
+          digest changed in \`fidelity/models_snapshot.json\`.
+
+          Action: run \`microburst fidelity capture\` against real AWS for the
+          drifted services and commit the refreshed captures.
+
+          \`\`\`
+          $(git diff --stat fidelity/models_snapshot.json)
+          \`\`\`
+          EOF
+          )
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --label model-drift \
+              --title "botocore model drift — refresh fidelity captures" \
+              --body "$BODY"
+          fi

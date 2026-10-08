@@ -12,6 +12,16 @@
   "method": "POST",
   "model_service": "cloudwatch",
   "operation": "get_dashboard",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "8e470e1a-7925-4bff-8594-9f5a3e67cc56"
+    },
+    "server": null
+  },
   "sdk_error_code": "ResourceNotFound",
   "service": "cloudwatch",
   "status": 404,

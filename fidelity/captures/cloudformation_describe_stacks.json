@@ -14,6 +14,16 @@
   "method": "POST",
   "model_service": "cloudformation",
   "operation": "describe_stacks",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "8b2672a8-6ddf-4aed-bf06-a18a96dc2933"
+    },
+    "server": null
+  },
   "sdk_error_code": "ValidationError",
   "service": "cloudformation",
   "status": 400,

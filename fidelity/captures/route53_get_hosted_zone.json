@@ -11,6 +11,16 @@
   "method": "GET",
   "model_service": "route53",
   "operation": "get_hosted_zone",
+  "provenance": {
+    "backfilled": true,
+    "botocore": null,
+    "captured_at": "2026-10-08T20:39:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "caaedd1b-55f3-4637-aa25-ab72106bc04a"
+    },
+    "server": null
+  },
   "sdk_error_code": "NoSuchHostedZone",
   "service": "route53",
   "status": 404,
