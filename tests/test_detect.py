@@ -129,3 +129,73 @@ def test_rest_json_required_keys_disambiguate_sso_oidc():
         b'"subjectToken":"s","subjectTokenType":"t"}',
     )
     assert info.operation == "CreateTokenWithIAM"
+
+
+def _s3_auth():
+    return {"Authorization": AUTH.format(scope="s3")}
+
+
+def test_virtual_hosted_s3_get_object():
+    headers = {**_s3_auth(), "Host": "mybucket.s3.us-east-1.amazonaws.com"}
+    info = detect(headers, "GET", "/photos/cat.jpg", {}, None)
+    assert info.service == "s3"
+    assert info.operation == "GetObject"
+    assert info.resource == "mybucket"
+
+
+def test_virtual_hosted_s3_bucket_level_op():
+    headers = {**_s3_auth(), "Host": "mybucket.s3.us-west-2.amazonaws.com"}
+    info = detect(headers, "GET", "/", {"acl": ""}, None)
+    assert info.service == "s3"
+    assert info.operation == "GetBucketAcl"
+    assert info.resource == "mybucket"
+
+
+def test_virtual_hosted_emulator_host():
+    # boto3 virtual addressing against a local endpoint:
+    # endpoint_url=localhost + addressing_style=virtual → bucket.localhost
+    headers = {**_s3_auth(), "Host": "mybucket.localhost:4566"}
+    info = detect(headers, "GET", "/key.txt", {}, None)
+    assert info.service == "s3"
+    assert info.operation == "GetObject"
+    assert info.resource == "mybucket"
+
+
+def test_path_style_s3_unaffected():
+    headers = {**_s3_auth(), "Host": "s3.us-east-1.amazonaws.com"}
+    info = detect(headers, "GET", "/mybucket/photos/cat.jpg", {}, None)
+    assert info.service == "s3"
+    assert info.operation == "GetObject"
+    assert info.resource == "mybucket"
+
+
+def test_s3control_account_host_prefix():
+    headers = {
+        "Authorization": AUTH.format(scope="s3"),
+        "Host": "123456789012.s3-control.us-east-1.amazonaws.com",
+    }
+    info = detect(
+        headers, "GET", "/v20180820/jobs", {}, None
+    )
+    assert info.service == "s3control"
+
+
+def test_host_fills_service_for_unsigned_request():
+    headers = {"Host": "dynamodb.us-east-1.amazonaws.com"}
+    info = detect(headers, "POST", "/", {}, None)
+    assert info.service == "dynamodb"
+    assert info.region == "us-east-1"
+
+
+def test_untrusted_host_does_not_fabricate_service():
+    headers = {"Host": "api.logs.datadoghq.com"}
+    info = detect(headers, "GET", "/x", {}, None)
+    assert info.service is None
+
+
+def test_proxy_host_yields_nothing():
+    headers = {**_s3_auth(), "Host": "127.0.0.1:9999"}
+    info = detect(headers, "GET", "/b/k", {}, None)
+    assert info.service == "s3"
+    assert info.region == "us-east-1"
+    assert info.resource == "b"

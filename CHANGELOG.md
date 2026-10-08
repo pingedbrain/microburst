@@ -4,6 +4,56 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-10-08
+
+Live-AWS-verified fidelity. Everything in this release was corrected
+against real AWS wire captures (`fidelity/`), not model inference.
+
+### Added
+
+- **Live-AWS fidelity diff** — `tools/live_fidelity.py` captures raw error
+  responses from real AWS (botocore transport wrap — real TLS bytes, no
+  proxy) via read-only probes against nonexistent resources, then diffs
+  status / parsed `Error.Code` / Content-Type / request-id placement
+  against `render_error`. `fidelity/REPORT.md` commits the result:
+  13/13 probes match. Account IDs are redacted from captures.
+- **REST collision sweep** — `detection/sweep.py` synthesizes the minimal
+  request each of ~10.4k REST ops declares and asserts the matcher
+  resolves it back; `fidelity/rest_sweep.json` is the committed snapshot
+  (`tools/rest_sweep.py` regenerates). 5 ops remain unresolvable — all
+  genuine AWS aliases with identical literal routes.
+- **Host / virtual-hosted detection** — `bucket.s3.…` and emulator
+  `bucket.s3.localhost…`/`bucket.localhost` addressing: the label is
+  prepended for route matching and becomes the resource hint;
+  `{accountId}.s3-control…` resolves s3control despite its `s3` signing
+  scope; host fills service/region on unsigned requests for AWS-shaped
+  domains only.
+- **Keep-alive fidelity tests** — pooled clients reuse one upstream
+  connection through the proxy; injected errors keep the downstream
+  socket alive; `reset` still hard-kills.
+
+### Fixed (all verified against live AWS captures)
+
+- json/cbor services serve unmodeled client errors at **400** per the
+  awsJson spec — name-guessing had produced 404s.
+- `Content-Type` honors the model's `jsonVersion` (`x-amz-json-1.1` for
+  KMS, Logs, SecretsManager).
+- `__type` is namespaced where AWS namespaces it
+  (`com.amazonaws.dynamodb.v20120810#`, `com.amazonaws.sqs#`).
+- Error message member follows the shape (`message` vs `Message`).
+- rest-json carries the code in `x-amzn-ErrorType`; the body holds the
+  error shape's members (`{"Type":"User","Message":…}`).
+- Query-compat services emit `x-amzn-query-error: AWS.<ns>.<code>;Sender`
+  automatically when the model declares `awsQueryCompatible`
+  (`AWS.SimpleQueueService` verified live).
+- Route53 serves `text/xml` + `x-amzn-RequestId` (not the S3-style pair).
+- HEAD requests return empty error bodies (HTTP semantics — S3 404s).
+- Numeric error codes (`"404"`) resolve to that HTTP status.
+- REST matcher: query-marker *values* discriminate (`?operation=create`
+  vs `suspend`), required querystring members score (S3 `partNumber`/
+  `uploadId`), route specificity breaks ties when a greedy `{Label+}`
+  swallows literal sibling segments.
+
 ## [0.3.0] - 2026-10-08
 
 Dashboard, Docker, and HTTP/2.

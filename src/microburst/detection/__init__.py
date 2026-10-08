@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from microburst.core.context import RequestContext, RequestInfo
+from microburst.detection.host import parse_host, virtual_label
 from microburst.detection.operation import parse_rpcv2_path, resolve_operation
 from microburst.detection.resource import resource_hint
 from microburst.detection.rest import match_rest_operation, rest_operations
@@ -94,6 +95,24 @@ def detect(
     # shared SigV4 scopes (dynamodb vs dynamodbstreams, events vs
     # eventbridgev2) and identifies requests whose scope didn't resolve.
     service = service_for_target_prefix(_target_prefix(headers, path) or "") or service
+
+    # Host fills what credentials don't provide: service for unsigned
+    # requests, region, and the virtual-hosted resource label
+    # (bucket.s3.…, {accountId}.s3-control.…).
+    host = headers.get("Host", "")
+    host_service, host_region, host_label = parse_host(host)
+    # The host is the addressed service — it wins over the SigV4 scope,
+    # which deliberately aliases (s3control signs as "s3").
+    service = host_service or service
+    region = region or host_region
+    label = host_label or virtual_label(host, service)
+
+    # For S3 virtual-hosted style the bucket lives in the host — prepend it
+    # so REST route matching sees the modeled /{Bucket}/{Key} shape.
+    match_path = path
+    if label and service == "s3":
+        match_path = f"/{label}" + ("" if path == "/" else path)
+
     ctx = RequestContext(
         method=method,
         path=path,
@@ -106,6 +125,10 @@ def detect(
         protocol=_wire_protocol(headers, service),
         query_compat="x-amzn-query-mode" in headers,
     )
-    ctx.operation = resolve_operation(service, headers, method, path, query, body)
-    ctx.resource = resource_hint(service, ctx.operation, path, body)
+    ctx.operation = resolve_operation(
+        service, headers, method, match_path, query, body
+    )
+    ctx.resource = (
+        resource_hint(service, ctx.operation, match_path, body) or label
+    )
     return ctx

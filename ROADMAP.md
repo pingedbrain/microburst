@@ -39,8 +39,13 @@ query-marker + required-header disambiguation.
   without query markers), raw bodies favor payload ops. Genuinely
   ambiguous empty-body GETs (e.g. chime `DescribeChannel*` variants)
   still resolve to first stable match — no modeled signal exists.
-- Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
-  `queue.amazonaws.com` style hosts) for upstreams that route on Host.
+- ~~Host-prefix / virtual-hosted detection~~ ✅ — `detection/host.py`
+  parses the Host header: `bucket.s3.…` (and emulator
+  `bucket.s3.localhost…`/`bucket.localhost`) prepend the label so REST
+  matching sees `/{Bucket}/{Key}`; `{accountId}.s3-control…` resolves the
+  s3control service (it signs as `s3`); host fills service/region for
+  unsigned requests on AWS-shaped or emulator-shaped domains only —
+  arbitrary `api.logs.example.com` hosts stay undetected.
 
 ## Protocols (`protocols/`)
 
