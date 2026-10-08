@@ -33,12 +33,12 @@ query-marker + required-header disambiguation.
 - ~~Presigned URL detection~~ ✅ — `X-Amz-Credential` in the query string
   resolves service/region/key like the Authorization header.
 - ~~SigV4A~~ ✅ — same credential shape parses; region shows as `*`.
-- **Body-based REST disambiguation** — measured: 14/263 REST services have
-  method+path collisions (S3: 113 ops in 9 routes; chime*: ~60 ops; plus
-  glacier/qbusiness/sso-oidc pairs). Query markers + required headers
-  already resolve the S3 subresource family (`?acl`, `?tagging`…); what
-  remains is body-driven (`TagResource` vs `UntagResource`, chime POST
-  families). `[size:M]`
+- ~~Body-based REST disambiguation~~ ✅ — required/declared body members
+  score candidates: JSON top-level keys, rest-xml root element vs
+  structure-payload wire name (resolves the S3 `PutBucketX` family even
+  without query markers), raw bodies favor payload ops. Genuinely
+  ambiguous empty-body GETs (e.g. chime `DescribeChannel*` variants)
+  still resolve to first stable match — no modeled signal exists.
 - Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
   `queue.amazonaws.com` style hosts) for upstreams that route on Host.
 
@@ -116,8 +116,10 @@ query-marker + required-header disambiguation.
   against AWS + microburst, diff envelopes, publish a per-service
   fidelity report.
   The strongest moat: evidence-grade correctness claims. `[size:L]`
-- Error-shape fuzzing — iterate every modeled exception of every operation
-  and assert each parses to the right code in the SDK. `[size:M]`
+- ~~Error-shape fuzzing~~ ✅ — `test_every_modeled_error_roundtrips`
+  iterates every unique modeled error wire code per service (~90k shapes
+  deduped), asserts `Error.Code` round-trips through botocore's parser AND
+  that status matches the modeled `httpStatusCode`.
 - Multi-SDK matrix — boto3, aws-sdk-js-v3, aws-sdk-java, aws-sdk-go v2.
   Same wire format, different header quirks. `[size:M]`
 - REST collision sweep — run every ambiguous method+path pair through the
@@ -126,9 +128,11 @@ query-marker + required-header disambiguation.
 ## Ecosystem
 
 - ~~Docker image~~ ✅ — multi-stage `Dockerfile` (slim, wheel build),
-  published to GHCR on release by `docker.yml`. Compose examples still
-  open. `[good-first-issue]`
-- GitHub Action for CI pipelines (service container + preset flag). `[size:M]`
+  published to GHCR on release by `docker.yml`. ~~Compose example~~ ✅ —
+  `examples/docker-compose.yml` wires microburst + MiniStack.
+- ~~GitHub Action~~ ✅ — `action.yml` composite action: `uses:
+  pingedbrain/microburst@vX` runs the container, waits for health, sets
+  `AWS_ENDPOINT_URL`. Optional `config:` mounts a rules file.
 - MiniStack-native integration — `/_ministack/chaos`-compatible API so the
   same faults work without a separate proxy hop.
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,

@@ -64,6 +64,34 @@ docker run --rm -p 9999:9999 ghcr.io/pingedbrain/microburst:latest \
   --upstream http://host.docker.internal:4566
 ```
 
+Docker Compose (microburst + MiniStack wired together):
+
+```bash
+docker compose -f examples/docker-compose.yml up
+```
+
+## GitHub Action
+
+Drop fault injection into any workflow — microburst runs as a step
+container and exports `AWS_ENDPOINT_URL` for you:
+
+```yaml
+jobs:
+  chaos-tests:
+    runs-on: ubuntu-latest
+    services:
+      ministack:
+        image: ministackorg/ministack:latest
+        ports: ["4566:4566"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pingedbrain/microburst@v0.3.0
+        with:
+          upstream: http://localhost:4566
+          config: .github/chaos.yml   # optional rules file
+      - run: pytest                 # AWS_ENDPOINT_URL already set
+```
+
 ## Quickstart
 
 ```bash

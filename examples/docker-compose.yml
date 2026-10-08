@@ -1,0 +1,25 @@
+# Local chaos environment: MiniStack (AWS emulator) behind microburst.
+#
+#   docker compose -f examples/docker-compose.yml up
+#   export AWS_ENDPOINT_URL=http://localhost:9999
+#
+# Your app talks to microburst; microburst injects faults, then forwards
+# the survivors to MiniStack. Point the TUI at the proxy:
+#   microburst dashboard --connect http://localhost:9999
+services:
+  ministack:
+    image: ministackorg/ministack:latest
+    ports:
+      - "4566:4566"  # direct access, no faults — for debugging
+
+  microburst:
+    image: ghcr.io/pingedbrain/microburst:latest
+    ports:
+      - "9999:9999"  # the endpoint your app should use
+    volumes:
+      - ./chaos.yml:/microburst.yml:ro
+    # --upstream overrides the config file — inside compose the emulator
+    # is reachable by service name, not localhost.
+    command: --config /microburst.yml --upstream http://ministack:4566
+    depends_on:
+      - ministack

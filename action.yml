@@ -1,0 +1,79 @@
+name: microburst
+description: >-
+  Start the microburst AWS-protocol-aware fault-injection proxy. Point
+  AWS_ENDPOINT_URL at it; it injects modeled faults and forwards to your
+  emulator or real AWS.
+branding:
+  icon: zap
+  color: purple
+
+inputs:
+  upstream:
+    description: >-
+      AWS-compatible endpoint to proxy to. Use the service name
+      (http://ministack:4566) or localhost when the emulator publishes a
+      port.
+    required: false
+    default: http://localhost:4566
+  port:
+    description: Host port the proxy listens on.
+    required: false
+    default: "9999"
+  config:
+    description: >-
+      Repo-relative path to a microburst YAML config (rules, upstream).
+      The file is mounted read-only; the upstream input still wins.
+    required: false
+    default: ""
+  image:
+    description: microburst image to run.
+    required: false
+    default: ghcr.io/pingedbrain/microburst:latest
+
+outputs:
+  endpoint:
+    description: Proxy endpoint — set AWS_ENDPOINT_URL to this.
+    value: http://localhost:${{ inputs.port }}
+
+runs:
+  using: composite
+  steps:
+    - name: Start microburst
+      shell: bash
+      env:
+        UPSTREAM: ${{ inputs.upstream }}
+        PORT: ${{ inputs.port }}
+        MB_CONFIG: ${{ inputs.config }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        MOUNT=()
+        # The control plane is unauthenticated — keep the loopback
+        # default so the proxy only serves the runner itself.
+        ARGS=(--upstream "$UPSTREAM" --port "$PORT")
+        if [ -n "$MB_CONFIG" ]; then
+          MOUNT=(-v "$GITHUB_WORKSPACE/$MB_CONFIG:/microburst.yml:ro")
+          ARGS+=(--config /microburst.yml)
+        fi
+        # --network host lets the proxy reach service containers via their
+        # published localhost ports, and exposes the proxy on localhost.
+        docker run -d --name microburst --network host \
+          "${MOUNT[@]}" "$IMAGE" "${ARGS[@]}"
+
+        # Wait for the control plane.
+        for i in $(seq 1 30); do
+          if curl -fsS "http://localhost:$PORT/_microburst/health" >/dev/null 2>&1; then
+            echo "microburst up on :$PORT → $UPSTREAM"
+            exit 0
+          fi
+          sleep 1
+        done
+        docker logs microburst >&2
+        echo "microburst failed to become healthy" >&2
+        exit 1
+
+    - name: Point AWS SDKs at the proxy
+      shell: bash
+      run: |
+        echo "AWS_ENDPOINT_URL=http://localhost:${{ inputs.port }}" >> "$GITHUB_ENV"
+        echo "Set AWS_ENDPOINT_URL=http://localhost:${{ inputs.port }} in later steps (done automatically)."
