@@ -18,8 +18,8 @@
 
 <p align="center">
   <a href="https://github.com/pingedbrain/microburst/actions/workflows/ci.yml"><img src="https://github.com/pingedbrain/microburst/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://pypi.org/project/microburst/"><img src="https://img.shields.io/pypi/v/microburst" alt="PyPI"></a>
-  <img src="https://img.shields.io/pypi/pyversions/microburst" alt="Python">
+  <a href="https://pypi.org/project/microburst/"><img src="https://img.shields.io/pypi/v/microburst?v=1" alt="PyPI"></a>
+  <img src="https://img.shields.io/pypi/pyversions/microburst?v=1" alt="Python">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
