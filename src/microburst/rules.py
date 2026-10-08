@@ -75,6 +75,7 @@ class Rule:
     latency: Latency | None = None
     timeout_ms: float | None = None
     reset: bool = False
+    response: dict | None = None   # post-forward response mutation spec
     ttl_s: float | None = None     # rule expires N seconds after creation
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
@@ -131,6 +132,7 @@ class Decision:
     latency_ms: float
     timeout_ms: float | None
     reset: bool
+    response_fault: object | None = None  # ResponseFault — built at fire time
 
 
 def _latency_from_dict(data: dict) -> Latency:
@@ -193,6 +195,7 @@ def from_dict(data: dict) -> Rule:
         ),
         timeout_ms=data.get("timeout_ms"),
         reset=bool(data.get("reset", False)),
+        response=data.get("response") if isinstance(data.get("response"), dict) else None,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
     )
     if rule.body is not None:
@@ -246,6 +249,8 @@ def to_dict(rule: Rule) -> dict:
         out["timeout_ms"] = rule.timeout_ms
     if rule.reset:
         out["reset"] = True
+    if rule.response:
+        out["response"] = rule.response
     if rule.ttl_s is not None:
         out["ttl_s"] = rule.ttl_s
         remaining = rule.ttl_s - (time.time() - rule.created_ts)
@@ -322,6 +327,7 @@ class RuleEngine:
                 latency_ms=rule.latency.sample() if rule.latency else 0.0,
                 timeout_ms=rule.timeout_ms,
                 reset=rule.reset,
+                response_fault=_response_fault(rule.response),
             )
         return None
 
@@ -433,6 +439,30 @@ class FiredEvent:
         }
 
 
+def _response_fault(spec: dict | None):
+    """Build a fresh ResponseFault per fire — resolve() mutates it in place."""
+    if spec is None:
+        return None
+    from microburst.forward import ResponseFault
+
+    return ResponseFault(
+        truncate_bytes=_int_or_none(spec.get("truncate_bytes")),
+        truncate_frac=_float_or_none(spec.get("truncate_frac")),
+        abort_bytes=_int_or_none(spec.get("abort_bytes")),
+        abort_frac=_float_or_none(spec.get("abort_frac")),
+        corrupt_bytes=int(spec.get("corrupt_bytes", 0)),
+        bandwidth_kbps=_float_or_none(spec.get("bandwidth_kbps")),
+    )
+
+
+def _int_or_none(v):
+    return int(v) if v is not None else None
+
+
+def _float_or_none(v):
+    return float(v) if v is not None else None
+
+
 def describe(decision: Decision) -> str:
     parts = []
     if decision.latency_ms:
@@ -443,6 +473,16 @@ def describe(decision: Decision) -> str:
         parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
     if decision.reset:
         parts.append("reset")
+    rf = decision.response_fault
+    if rf is not None:
+        if rf.truncate_bytes is not None or rf.truncate_frac is not None:
+            parts.append("response:truncate")
+        if rf.abort_bytes is not None or rf.abort_frac is not None:
+            parts.append("response:abort")
+        if rf.corrupt_bytes:
+            parts.append(f"response:corrupt:{rf.corrupt_bytes}B")
+        if rf.bandwidth_kbps:
+            parts.append(f"response:{rf.bandwidth_kbps:.0f}kbps")
     return "+".join(parts) or "match"
 
 

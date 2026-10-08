@@ -1,17 +1,21 @@
 """Upstream forwarding: request relay, streaming responses, SigV4 re-sign.
 
 Data plane only — nothing here decides anything. Detection and fault
-injection happen before a request reaches this module.
+injection happen before a request reaches this module; ``ResponseFault``
+is a transport-mutation spec the caller hands in, not a rule.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import os
 import re
+import secrets
 import time
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import aiohttp
@@ -121,6 +125,36 @@ def resign_headers(
     return out
 
 
+@dataclass
+class ResponseFault:
+    """Post-forward response mutation. All fields optional; combine freely.
+
+    - ``truncate_bytes``/``truncate_frac``: send a valid envelope with a
+      shortened body (Content-Length stripped → clean truncation; the
+      client "succeeds" with a partial payload — the nasty kind of fault).
+    - ``abort_bytes``/``abort_frac``: send that much, then kill the
+      connection mid-stream (client sees an incomplete read).
+    - ``corrupt_bytes``: flip that many bytes in the buffered body.
+    - ``bandwidth_kbps``: cap downstream throughput of the body stream.
+    """
+    truncate_bytes: int | None = None
+    truncate_frac: float | None = None
+    abort_bytes: int | None = None
+    abort_frac: float | None = None
+    corrupt_bytes: int = 0
+    bandwidth_kbps: float | None = None
+
+    def resolve(self, content_length: int | None) -> None:
+        """Turn frac fields into absolute byte counts once the upstream
+        Content-Length is known."""
+        if content_length is None:
+            return
+        if self.truncate_frac is not None and self.truncate_bytes is None:
+            self.truncate_bytes = int(content_length * self.truncate_frac)
+        if self.abort_frac is not None and self.abort_bytes is None:
+            self.abort_bytes = int(content_length * self.abort_frac)
+
+
 class Upstream:
     """Client for the upstream endpoint: session lifecycle + relay."""
 
@@ -148,7 +182,10 @@ class Upstream:
             await self.session.close()
 
     async def relay(
-        self, request: web.Request, body: bytes | None
+        self,
+        request: web.Request,
+        body: bytes | None,
+        mutator: ResponseFault | None = None,
     ) -> web.StreamResponse:
         assert self.session is not None
         url = self.base_url + request.rel_url.raw_path_qs
@@ -195,9 +232,60 @@ class Upstream:
             k: v for k, v in upstream.headers.items()
             if k.lower() not in HOP_BY_HOP
         }
+
+        if mutator is not None:
+            cl = upstream.headers.get("Content-Length")
+            mutator.resolve(int(cl) if cl else None)
+            # Truncation drops Content-Length so the client reads a
+            # complete-but-short body; abort keeps it so the client
+            # sees an incomplete read. Corrupt keeps it — same length,
+            # wrong bytes, the nastiest outcome.
+            if mutator.truncate_bytes is not None:
+                resp_headers.pop("Content-Length", None)
+
         resp = web.StreamResponse(status=upstream.status, headers=resp_headers)
         await resp.prepare(request)
-        async for chunk in upstream.content.iter_any():
+
+        if mutator is not None and mutator.corrupt_bytes:
+            data = bytearray(await upstream.read())
+            for _ in range(min(mutator.corrupt_bytes, len(data))):
+                data[secrets.randbelow(len(data))] ^= 0xFF
+            await resp.write(bytes(data))
+            await resp.write_eof()
+            return resp
+
+        sent = 0
+        chunk_size = 8192 if mutator and mutator.bandwidth_kbps else 0
+        iterator = (
+            upstream.content.iter_chunked(chunk_size)
+            if chunk_size
+            else upstream.content.iter_any()
+        )
+        async for chunk in iterator:
+            if mutator is not None:
+                if mutator.bandwidth_kbps:
+                    await asyncio.sleep(
+                        len(chunk) / (mutator.bandwidth_kbps * 1024)
+                    )
+                if mutator.truncate_bytes is not None:
+                    remaining = mutator.truncate_bytes - sent
+                    if remaining <= 0:
+                        break
+                    chunk = chunk[:remaining]
+                if (
+                    mutator.abort_bytes is not None
+                    and sent + len(chunk) > mutator.abort_bytes
+                ):
+                    keep = mutator.abort_bytes - sent
+                    if keep > 0:
+                        await resp.write(chunk[:keep])
+                    # die mid-stream: partial body already sent, now
+                    # the connection drops — the client's read fails
+                    transport = request.transport
+                    if transport is not None:
+                        transport.abort()
+                    return resp
             await resp.write(chunk)
+            sent += len(chunk)
         await resp.write_eof()
         return resp

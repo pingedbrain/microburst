@@ -102,6 +102,11 @@ class Microburst:
             fault = await apply_decision(request, ctx, decision)
             if fault is not None:
                 return fault
+            # terminal effects didn't fire → forward, possibly mutating
+            # the response on the way back (truncate/abort/corrupt/shape)
+            return await self.upstream.relay(
+                request, body, mutator=decision.response_fault
+            )
 
         return await self.upstream.relay(request, body)
 
