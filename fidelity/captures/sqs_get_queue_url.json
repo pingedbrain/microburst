@@ -1,0 +1,20 @@
+{
+  "body": "{\"__type\":\"com.amazonaws.sqs#QueueDoesNotExist\",\"message\":\"The specified queue does not exist.\"}",
+  "body_b64": null,
+  "family": "query",
+  "headers": {
+    "Content-Length": "96",
+    "Content-Type": "application/x-amz-json-1.0",
+    "Date": "Thu, 08 Oct 2026 14:49:20 GMT",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "747bd204-f7ae-5c4f-bf1e-b145581e1ca0",
+    "x-amzn-query-error": "AWS.SimpleQueueService.NonExistentQueue;Sender"
+  },
+  "method": "POST",
+  "operation": "get_queue_url",
+  "sdk_error_code": "AWS.SimpleQueueService.NonExistentQueue",
+  "service": "sqs",
+  "status": 400,
+  "ts": 1791470961.0343883,
+  "url": "https://sqs.us-east-1.amazonaws.com/"
+}

@@ -211,6 +211,25 @@ Requests are re-signed with your credentials automatically for
 against staging accounts. Add `--http2` (needs `microburst[h2]`) to talk
 HTTP/2 to the upstream — AWS endpoints negotiate it via ALPN.
 
+## Fidelity vs real AWS
+
+Error envelopes aren't guessed — they're diffed against live AWS captures.
+`tools/live_fidelity.py` records raw wire responses from real AWS
+(read-only probes against nonexistent resources, credentials from your
+profile/env) and diffs them against what `render_error` produces:
+
+```bash
+AWS_PROFILE=you python tools/live_fidelity.py capture   # raw wire captures
+python tools/live_fidelity.py report                    # → fidelity/REPORT.md
+```
+
+The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
+13/13 probes matching AWS on status, parsed `Error.Code`, and
+Content-Type — including the details that matter to SDK retry behavior:
+`x-amz-json-1.1` content types, `com.amazonaws.*`-namespaced `__type`,
+rest-json `x-amzn-ErrorType` headers, SQS's `AWS.SimpleQueueService.*`
+query-compat namespace, Route53's `text/xml`, and empty-body HEAD errors.
+
 ## Caveats
 
 - Downstream is HTTP/1.1 (AWS SDKs don't speak h2 to the client anyway);

@@ -274,6 +274,20 @@ def get_service_model(service: str | None) -> Any | None:
     return model
 
 
+@cache
+def service_metadata(service: str | None) -> dict:
+    """Raw service-2 metadata dict (jsonVersion, targetPrefix, auth, ...)."""
+    if service is None:
+        return {}
+    try:
+        loader = _session.get_component("data_loader")
+        model = loader.load_service_model(service, "service-2")
+        meta = model.get("metadata")
+        return meta if isinstance(meta, dict) else {}
+    except Exception:  # noqa: BLE001 — service model may be absent/partial
+        return {}
+
+
 def get_protocol(service: str | None) -> str | None:
     model = get_service_model(service)
     if model is None:
@@ -394,18 +408,65 @@ def _modeled_status(service: str, name: str) -> int | None:
     return _modeled_status_map(service).get(name)
 
 
-def error_http_status(service: str, code: str, default: int = 503) -> int:
+def error_http_status(
+    service: str, code: str, default: int = 503, protocol: str | None = None
+) -> int:
     """HTTP status for an error code.
 
     Order: modeled ``httpStatusCode`` (rare but authoritative when present) →
-    curated AWS-observed map → ``default`` (callers pick per protocol; AWS
-    json/query services conventionally serve client errors at 400).
+    curated AWS-observed map → ``default``. Live-AWS captures show json/cbor
+    services serve unmodeled client errors at 400 per the awsJson spec even
+    when the name looks like a 404 (``ResourceNotFoundException`` is 400 on
+    DynamoDB); for those protocols the name map only contributes 5xx faults.
     """
     name = code.rsplit("#", 1)[-1]
     status = _modeled_status(service, name)
     if status is not None:
         return status
-    return _KNOWN_STATUS.get(name, default)
+    if name.isdigit():
+        return int(name)
+    known = _KNOWN_STATUS.get(name)
+    if protocol in ("json", "smithy-rpc-v2-cbor"):
+        if known is not None and (known >= 500 or known == 429):
+            return known
+        return 400 if default < 500 else default
+    return known if known is not None else default
+
+
+def error_message_member(service: str, code: str) -> str:
+    """Name of the error shape's message member (``message`` vs ``Message``).
+
+    The casing is service-specific on the wire — DynamoDB emits lowercase
+    ``message`` while SecretsManager emits ``Message``. Falls back to
+    ``message`` when the shape is unmodeled or has no message member.
+    """
+    shape = error_shape(service, code)
+    if shape is not None:
+        members = getattr(shape, "members", None)
+        if members:
+            for name in members:
+                if name.lower() == "message":
+                    return name
+    return "message"
+
+
+def is_query_compat_service(service: str | None) -> bool:
+    """Service model declares ``awsQueryCompatible`` (e.g. SQS on JSON wire)."""
+    return "awsQueryCompatible" in service_metadata(service)
+
+
+# Verified AWS query-compat namespaces for the ``x-amzn-query-error`` header —
+# AWS emits ``AWS.{namespace}.{code};Sender``. Grows as live captures cover
+# more migrated services; unknown services emit the bare code.
+_QUERY_ERROR_NAMESPACE = {
+    "sqs": "AWS.SimpleQueueService",
+}
+
+
+def query_error_namespace(service: str | None) -> str | None:
+    if service is None:
+        return None
+    return _QUERY_ERROR_NAMESPACE.get(service)
 
 
 def operation_error_names(service: str, operation: str) -> list[str]:

@@ -1,0 +1,18 @@
+{
+  "body": "{\"__type\":\"ResourceNotFoundException\",\"message\":\"The specified log group does not exist.\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Content-Length": "90",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 14:49:20 GMT",
+    "x-amzn-RequestId": "745de95f-7fe2-4e54-b4ca-3df0eed0cf19"
+  },
+  "method": "POST",
+  "operation": "get_log_events",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "logs",
+  "status": 400,
+  "ts": 1791470960.4781916,
+  "url": "https://logs.us-east-1.amazonaws.com/"
+}

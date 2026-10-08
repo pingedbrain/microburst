@@ -15,11 +15,16 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from microburst.models import error_http_status, get_protocol
+from microburst.models import (
+    error_http_status,
+    get_protocol,
+    is_query_compat_service,
+    query_error_namespace,
+)
 
 __all__ = ["get_serializer", "register_serializer", "render_error"]
 
-# render(code, message, request_id) -> (headers, body)
+# render(code, message, request_id, service) -> (headers, body)
 _SERIALIZERS: dict[str, Callable] = {}
 
 
@@ -69,6 +74,15 @@ def render_error(
     query-compatible clients, which drives the SDK's parsed error code.
     """
     protocol = protocol or (get_protocol(service) if service else None)
+
+    # The query-compat header code may arrive namespaced
+    # (``AWS.SimpleQueueService.NonExistentQueue``); the body and status
+    # lookups always use the bare code.
+    ns = query_error_namespace(service)
+    bare_code = code
+    if ns and code.startswith(f"{ns}."):
+        bare_code = code[len(ns) + 1:]
+
     if status is None:
         if service is None:
             status = 503
@@ -80,12 +94,17 @@ def render_error(
                 if protocol in ("json", "query", "ec2", "smithy-rpc-v2-cbor")
                 else 503
             )
-            status = error_http_status(service, code, default=default)
+            status = error_http_status(
+                service, bare_code, default=default, protocol=protocol
+            )
     if not message:
         message = code
 
     renderer = get_serializer(protocol) or _DEFAULT_RENDERER
-    headers, body = renderer(code, message, _request_id())
-    if query_compat:
-        headers["x-amzn-query-error"] = f"{code};Sender"
+    headers, body = renderer(bare_code, message, _request_id(), service)
+    if query_compat or (
+        protocol == "json" and is_query_compat_service(service)
+    ):
+        qcode = f"{ns}.{bare_code}" if ns else bare_code
+        headers["x-amzn-query-error"] = f"{qcode};Sender"
     return status, headers, body

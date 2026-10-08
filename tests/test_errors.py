@@ -7,14 +7,17 @@ from microburst.protocols import render_error
 
 
 def test_json_protocol_dynamodb():
-    status, headers, body = render_error(
+    status, _headers, body = render_error(
         "dynamodb", "ProvisionedThroughputExceededException",
         "Rate exceeded", None,
     )
     assert status == 400  # modeled httpStatusCode
-    assert headers["x-amzn-ErrorType"] == "ProvisionedThroughputExceededException"
+    # Live AWS: json services carry the code in __type only — DynamoDB
+    # namespaces it com.amazonaws.dynamodb.v20120810#, no x-amzn-ErrorType.
     payload = json.loads(body)
-    assert payload["__type"] == "ProvisionedThroughputExceededException"
+    assert payload["__type"] == (
+        "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException"
+    )
     assert payload["message"] == "Rate exceeded"
 
 
@@ -41,7 +44,8 @@ def test_rest_json_uses_errortype_header():
     _status, headers, body = render_error(
         "apigateway", "TooManyRequestsException", "", 429,
     )
-    assert headers["x-amzn-errortype"] == "TooManyRequestsException"
+    # Live AWS sends the camelCase x-amzn-ErrorType on rest-json.
+    assert headers["x-amzn-ErrorType"] == "TooManyRequestsException"
     assert json.loads(body)["message"] == "TooManyRequestsException"
 
 

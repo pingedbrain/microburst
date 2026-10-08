@@ -1,0 +1,18 @@
+{
+  "body": "<ErrorResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\">\n  <Error>\n    <Type>Sender</Type>\n    <Code>NoSuchEntity</Code>\n    <Message>The user with name microburst-fidelity-doesnotexist-7f3a9 cannot be found.</Message>\n  </Error>\n  <RequestId>857808a0-2e7b-4f0d-a004-6d2508c4203b</RequestId>\n</ErrorResponse>\n",
+  "body_b64": null,
+  "family": "query",
+  "headers": {
+    "Content-Length": "318",
+    "Content-Type": "text/xml",
+    "Date": "Thu, 08 Oct 2026 14:49:22 GMT",
+    "x-amzn-RequestId": "857808a0-2e7b-4f0d-a004-6d2508c4203b"
+  },
+  "method": "POST",
+  "operation": "get_user",
+  "sdk_error_code": "NoSuchEntity",
+  "service": "iam",
+  "status": 404,
+  "ts": 1791470962.1719992,
+  "url": "https://iam.amazonaws.com/"
+}

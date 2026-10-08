@@ -1,0 +1,20 @@
+{
+  "body": "{\"Type\":\"User\",\"Message\":\"Function not found: arn:aws:lambda:us-east-1:000000000000:function:microburst-fidelity-doesnotexist-7f3a9\"}",
+  "body_b64": null,
+  "family": "rest-json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "133",
+    "Content-Type": "application/json",
+    "Date": "Thu, 08 Oct 2026 14:49:25 GMT",
+    "x-amzn-ErrorType": "ResourceNotFoundException",
+    "x-amzn-RequestId": "9f34cb35-89c0-41a3-995f-bcfad16f9843"
+  },
+  "method": "GET",
+  "operation": "get_function",
+  "sdk_error_code": "ResourceNotFoundException",
+  "service": "lambda",
+  "status": 404,
+  "ts": 1791470965.3006485,
+  "url": "https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/microburst-fidelity-doesnotexist-7f3a9"
+}

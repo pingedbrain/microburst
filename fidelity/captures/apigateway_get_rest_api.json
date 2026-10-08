@@ -1,0 +1,21 @@
+{
+  "body": "{\"message\":\"Invalid API identifier specified 000000000000:microburst-fidelity-doesnotexist-7f3a9\"}\n",
+  "body_b64": null,
+  "family": "rest-json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "99",
+    "Content-Type": "application/json",
+    "Date": "Thu, 08 Oct 2026 14:49:25 GMT",
+    "x-amz-apigw-id": "E7gKfIaXIAMEdfQ=",
+    "x-amzn-ErrorType": "NotFoundException",
+    "x-amzn-RequestId": "e18d68ff-c2f8-4092-bf3e-3ce2f74bc97f"
+  },
+  "method": "GET",
+  "operation": "get_rest_api",
+  "sdk_error_code": "NotFoundException",
+  "service": "apigateway",
+  "status": 404,
+  "ts": 1791470965.9343784,
+  "url": "https://apigateway.us-east-1.amazonaws.com/restapis/microburst-fidelity-doesnotexist-7f3a9"
+}

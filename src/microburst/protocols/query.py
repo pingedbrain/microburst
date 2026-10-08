@@ -8,7 +8,9 @@ from microburst.protocols import register_serializer
 
 
 @register_serializer("query", "ec2")
-def render(code: str, message: str, request_id: str) -> tuple[dict[str, str], bytes]:
+def render(
+    code: str, message: str, request_id: str, service: str | None = None
+) -> tuple[dict[str, str], bytes]:
     headers = {
         "Content-Type": "text/xml",
         "x-amzn-RequestId": request_id,

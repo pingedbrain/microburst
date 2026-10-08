@@ -38,7 +38,9 @@ def encode_map_str(pairs: dict[str, str]) -> bytes:
 
 
 @register_serializer("smithy-rpc-v2-cbor")
-def render(code: str, message: str, request_id: str) -> tuple[dict[str, str], bytes]:
+def render(
+    code: str, message: str, request_id: str, service: str | None = None
+) -> tuple[dict[str, str], bytes]:
     headers = {
         "smithy-protocol": "rpc-v2-cbor",
         "Content-Type": "application/cbor",

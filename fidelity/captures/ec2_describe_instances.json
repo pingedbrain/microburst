@@ -1,0 +1,23 @@
+{
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Errors><Error><Code>InvalidInstanceID.Malformed</Code><Message>Invalid id: \"i-0000000000000000x\"</Message></Error></Errors><RequestID>0d160cea-39ba-4bcf-9984-29beed555dec</RequestID></Response>",
+  "body_b64": null,
+  "family": "ec2",
+  "headers": {
+    "Cache-Control": "no-cache, no-store",
+    "Connection": "close",
+    "Content-Type": "text/xml;charset=UTF-8",
+    "Date": "Thu, 08 Oct 2026 14:49:22 GMT",
+    "Server": "AmazonEC2",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Transfer-Encoding": "chunked",
+    "vary": "accept-encoding",
+    "x-amzn-RequestId": "0d160cea-39ba-4bcf-9984-29beed555dec"
+  },
+  "method": "POST",
+  "operation": "describe_instances",
+  "sdk_error_code": "InvalidInstanceID.Malformed",
+  "service": "ec2",
+  "status": 400,
+  "ts": 1791470962.9101145,
+  "url": "https://ec2.us-east-1.amazonaws.com/"
+}

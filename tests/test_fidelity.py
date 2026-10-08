@@ -40,13 +40,19 @@ def test_error_code_roundtrips(service):
     status, headers, body = render_error(service, code, "fidelity check")
     parser = create_parser(model.protocol)
     parsed = parser.parse(
-        {"status_code": status, "headers": dict(headers), "body": body},
+        # header keys lowercased — botocore's dict lookup is case-sensitive;
+        # real clients get a case-insensitive mapping
+        {"status_code": status,
+         "headers": {k.lower(): v for k, v in headers.items()},
+         "body": body},
         op.output_shape,
     )
     error = parsed.get("Error") or {}
-    assert error.get("Code") == code, (
-        f"{service}: parser recovered {error.get('Code')!r}, "
-        f"expected {code!r}"
+    got = error.get("Code") or ""
+    # query-compat services namespace the parsed code (AWS.X.Y), same as
+    # live AWS — the bare code is the suffix.
+    assert got == code or got.rsplit(".", 1)[-1] == code, (
+        f"{service}: parser recovered {got!r}, expected {code!r}"
     )
 
 
@@ -81,11 +87,17 @@ def test_every_modeled_error_roundtrips(service):
     for code, want_status in cases.items():
         status, headers, body = render_error(service, code, "fuzz")
         parsed = parser.parse(
-            {"status_code": status, "headers": dict(headers), "body": body},
+            # header keys lowercased — botocore's dict lookup is
+            # case-sensitive; real clients get a case-insensitive mapping
+            {"status_code": status,
+             "headers": {k.lower(): v for k, v in headers.items()},
+             "body": body},
             None,
         )
         got = (parsed.get("Error") or {}).get("Code")
-        if got != code:
+        # query-compat services namespace the parsed code
+        # (AWS.SimpleQueueService.X) — same as live AWS
+        if got != code and (got or "").rsplit(".", 1)[-1] != code:
             failures.append(f"code {code!r} -> {got!r}")
         if isinstance(want_status, int) and status != want_status:
             failures.append(

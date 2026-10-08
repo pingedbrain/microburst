@@ -1,0 +1,22 @@
+{
+  "body": "{\"__type\":\"NotFoundException\",\"message\":\"Invalid keyId 'microburst-fidelity-doesnotexist-7f3a9'\"}",
+  "body_b64": null,
+  "family": "json",
+  "headers": {
+    "Cache-Control": "no-cache, no-store, must-revalidate, private",
+    "Content-Length": "97",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Thu, 08 Oct 2026 14:49:19 GMT",
+    "Expires": "0",
+    "Pragma": "no-cache",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "55482d98-3639-4f8d-939e-be5d17b9dbc5"
+  },
+  "method": "POST",
+  "operation": "describe_key",
+  "sdk_error_code": "NotFoundException",
+  "service": "kms",
+  "status": 400,
+  "ts": 1791470959.3197768,
+  "url": "https://kms.us-east-1.amazonaws.com/"
+}

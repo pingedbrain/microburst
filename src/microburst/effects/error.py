@@ -19,4 +19,6 @@ async def apply(ctx, decision: Decision) -> web.Response | None:
         protocol=ctx.protocol,
         query_compat=ctx.query_compat,
     )
+    if ctx.method == "HEAD":
+        body = b""
     return web.Response(status=status, headers=headers, body=body)

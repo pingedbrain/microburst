@@ -141,7 +141,9 @@ def test_sqs_throttle(upstub, microburst_server, aws_env):
     )
     with pytest.raises(ClientError) as exc:
         client.send_message(QueueUrl="http://x/123/jobs", MessageBody="hi")
-    assert exc.value.response["Error"]["Code"] == "Throttling"
+    # Live AWS returns the namespaced code on SQS's query-compat header
+    # (AWS.SimpleQueueService.Throttling); suffix match keeps it honest.
+    assert exc.value.response["Error"]["Code"].rsplit(".", 1)[-1] == "Throttling"
 
 
 def test_s3_slowdown(upstub, microburst_server, aws_env):

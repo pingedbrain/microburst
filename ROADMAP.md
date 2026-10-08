@@ -109,13 +109,19 @@ query-marker + required-header disambiguation.
 
 ## Fidelity & verification
 
-- **Fidelity harness** — ~~headless phase done~~ ✅: `test_fidelity.py`
-  renders every service's error and parses it with botocore's own
-  protocol parser — `Error.Code` round-trips for all 436 services
-  (437 checks). Open: live diff against real AWS — run the same call
-  against AWS + microburst, diff envelopes, publish a per-service
-  fidelity report.
-  The strongest moat: evidence-grade correctness claims. `[size:L]`
+- **Fidelity harness** — ✅ both phases: `test_fidelity.py` renders every
+  service's error and parses it with botocore's own protocol parser —
+  `Error.Code` round-trips for all 436 services (~870 checks across the
+  fuzz sweep). **Live-AWS diff** ✅: `tools/live_fidelity.py` captures raw
+  wire responses from real AWS (`capture`) and diffs them against
+  `render_error` (`report`) — `fidelity/REPORT.md` publishes the result
+  (13/13 probes match status + parsed code + Content-Type). It already
+  caught real divergences: json services serve unmodeled client errors at
+  400 not the name-guessed 404, `x-amz-json-1.1` content types,
+  `com.amazonaws.*` `__type` prefixes, rest-json `x-amzn-ErrorType`
+  headers, SQS's `AWS.SimpleQueueService.*` query-compat namespace,
+  Route53's `text/xml`, and empty-body HEAD errors. Extend `PROBES` and
+  re-run `capture` to grow coverage.
 - ~~Error-shape fuzzing~~ ✅ — `test_every_modeled_error_roundtrips`
   iterates every unique modeled error wire code per service (~90k shapes
   deduped), asserts `Error.Code` round-trips through botocore's parser AND
