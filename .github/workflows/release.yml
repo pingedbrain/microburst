@@ -14,7 +14,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/microburst
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - name: Build
         run: uv build
