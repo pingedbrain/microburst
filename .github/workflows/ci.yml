@@ -48,7 +48,7 @@ jobs:
       - name: Install microburst
         run: |
           uv venv .venv
-          uv pip install --python .venv/bin/python -e .
+          uv pip install --python .venv/bin/python -e ".[test]"
       - name: Install SDK clients
         run: |
           cd tools/sdk-matrix && npm ci

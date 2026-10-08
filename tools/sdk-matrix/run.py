@@ -123,7 +123,8 @@ def _sdk_clients(
         }
     if mvn:
         clients["java-v2"] = {
-            "cmd": [mvn, "-q", "-B", "-f", "java", "compile", "exec:java"],
+            # no -q: maven writes diagnostics to stdout
+            "cmd": [mvn, "-B", "-f", "java", "compile", "exec:java"],
             "cwd": HERE / "clients",
         }
     return clients
@@ -193,6 +194,9 @@ def main() -> int:
             if not rows:
                 print(f"--- {sdk} produced no results "
                       f"(rc={proc.returncode}) ---")
+                # maven logs to stdout; most others to stderr — show both
+                if proc.stdout.strip():
+                    print(proc.stdout[-1500:])
                 print(proc.stderr[-1500:])
             fired = _fired(base)
             for row in rows:
