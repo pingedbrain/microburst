@@ -1,0 +1,29 @@
+# microburst config example
+upstream: http://localhost:4566   # MiniStack — also works with moto, LocalStack, real AWS
+port: 9999
+
+rules:
+  # 10% of DynamoDB calls throttle with the real error shape
+  - service: dynamodb
+    probability: 0.1
+    error:
+      code: ProvisionedThroughputExceededException
+
+  # SQS gets slow: 1.5–4s on every call
+  - service: sqs
+    latency: { min: 1500, max: 4000 }
+
+  # S3 GetObject on one specific bucket returns SlowDown like AWS does
+  - service: s3
+    operation: GetObject
+    resource: my-critical-bucket
+    probability: 0.3
+    error:
+      code: SlowDown
+
+  # One-shot fault: fail exactly once, then let retries succeed
+  - service: secretsmanager
+    times: 1
+    error:
+      code: InternalServiceError
+      status: 500

@@ -1,0 +1,22 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write  # PyPI trusted publishing (OIDC) — no stored token
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/microburst
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build
+        run: uv build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
