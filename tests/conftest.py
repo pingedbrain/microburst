@@ -109,7 +109,8 @@ def upstub():
 @pytest.fixture
 def microburst_server():
     """Factory fixture: start microburst pointing at a given upstream with rules."""
-    from microburst.proxy import Microburst, make_app
+    from microburst.app import make_app
+    from microburst.core.pipeline import Microburst
 
     started = []
 

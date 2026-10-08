@@ -12,7 +12,7 @@ import random
 import time
 from dataclasses import dataclass, field
 
-from microburst.detect import RequestInfo
+from microburst.core.context import RequestContext
 from microburst.models import operation_error_names
 
 _ids = itertools.count(1)
@@ -49,7 +49,7 @@ class Rule:
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
 
-    def matches(self, info: RequestInfo) -> bool:
+    def matches(self, info: RequestContext) -> bool:
         if self.times is not None and self.fired_count >= self.times:
             return False
         if self.service and self.service != "*" and self.service != info.service:
@@ -161,7 +161,7 @@ class RuleEngine:
             self._rules = keep
         return removed
 
-    def decide(self, info: RequestInfo) -> Decision | None:
+    def decide(self, info: RequestContext) -> Decision | None:
         for rule in self._rules:
             if not rule.matches(info):
                 continue

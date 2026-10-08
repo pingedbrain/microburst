@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mascot.svg" alt="Nimbus, the microburst mascot" width="220">
+  <img src="assets/mascot.jpeg" alt="Nimbus, the microburst mascot" width="300">
 </p>
 
 <h1 align="center">microburst</h1>

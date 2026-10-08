@@ -8,7 +8,8 @@ import sys
 
 from aiohttp import web
 
-from microburst.proxy import Microburst, load_config, make_app
+from microburst.app import load_config, make_app
+from microburst.core.pipeline import Microburst
 
 
 def build_parser() -> argparse.ArgumentParser:

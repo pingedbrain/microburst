@@ -2,7 +2,7 @@
 
 import json
 
-from microburst.detect import detect
+from microburst.detection import detect
 
 AUTH = (
     "AWS4-HMAC-SHA256 Credential=AKIATEST/20261007/us-east-1/{scope}"

@@ -3,7 +3,7 @@
 import json
 import xml.etree.ElementTree as ET
 
-from microburst.errors import render_error
+from microburst.protocols import render_error
 
 
 def test_json_protocol_dynamodb():
