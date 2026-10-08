@@ -1,0 +1,14 @@
+# SlowDown on a hot prefix + a bandwidth cap on the response — the
+# combination real backup/sync clients hit.
+rules:
+  - service: s3
+    operation: PutObject
+    probability: 0.5
+    error:
+      code: SlowDown
+      status: 503
+
+  - service: s3
+    operation: GetObject
+    response:
+      bandwidth_kbps: 256   # ~2s to stream a 64KB object

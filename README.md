@@ -76,6 +76,10 @@ Docker Compose (microburst + MiniStack wired together):
 docker compose -f examples/docker-compose.yml up
 ```
 
+Runnable failure scenarios — throttled writers, timeout vs retry-budget,
+poison queues, stream cuts, generic HTTP deps — live in
+[`examples/`](examples/README.md).
+
 ## GitHub Action
 
 Drop fault injection into any workflow — microburst runs as a step

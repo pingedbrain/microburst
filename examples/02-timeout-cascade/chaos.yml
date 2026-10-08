@@ -1,0 +1,5 @@
+# Every SQS call gets 1–3s of latency. The SDK doesn't fail — it just
+# takes long enough that your application deadline fires first.
+rules:
+  - service: sqs
+    latency: { min: 1000, max: 3000 }

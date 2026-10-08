@@ -1,0 +1,11 @@
+# No service matcher — fires on everything. Mix latency, resets and
+# timeouts the way a flaky internal API behaves.
+rules:
+  - probability: 0.3
+    latency: { min: 500, max: 2000 }
+
+  - probability: 0.1
+    reset: true
+
+  - probability: 0.05
+    timeout_ms: 5000   # accepted then never answered — worst failure mode

@@ -1,0 +1,8 @@
+# Exactly the first 3 calls to any service fail as expired credentials —
+# then recovery. Pair with a credential-provider refresh in your app to
+# see it heal itself.
+rules:
+  - times: 3
+    error:
+      code: ExpiredTokenException
+      status: 400

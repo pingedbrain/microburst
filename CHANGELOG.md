@@ -8,6 +8,11 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **Runnable failure-scenario examples** — `examples/` now holds seven
+  self-contained scenarios (throttled writes, timeout-vs-retry-budget,
+  poison queue, S3 SlowDown uploads, mid-stream event cuts, expired
+  token, generic HTTP dependency), each with a config + app script, and
+  a test that keeps every shipped config parseable.
 - **Emulator conformance** — `microburst fidelity capture --endpoint-url
   <emulator>` runs the same probes against any AWS-compatible endpoint,
   and `microburst fidelity conform --emu DIR --aws DIR` diffs them

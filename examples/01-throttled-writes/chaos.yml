@@ -1,0 +1,8 @@
+# 40% of PutItem calls get throttled — the SDK retries the real error
+# shape; the exhausted ones surface to your code.
+rules:
+  - service: dynamodb
+    operation: PutItem
+    probability: 0.4
+    error:
+      code: ProvisionedThroughputExceededException

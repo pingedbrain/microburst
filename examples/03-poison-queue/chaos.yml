@@ -1,0 +1,16 @@
+# 25% of ReceiveMessage polls return InternalError — plus a slow
+# DeleteMessage path so processed messages can redeliver.
+rules:
+  - service: sqs
+    operation: ReceiveMessage
+    probability: 0.25
+    error:
+      code: InternalError
+      status: 500
+
+  - service: sqs
+    operation: DeleteMessage
+    probability: 0.15
+    error:
+      code: InternalError
+      status: 500

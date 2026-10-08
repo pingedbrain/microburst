@@ -1,0 +1,11 @@
+# After 2 good frames, inject a terminal error event — the stream dies
+# mid-flight exactly like a real server-side failure.
+rules:
+  - service: s3
+    operation: SelectObjectContent
+    response:
+      event_frames:
+        - at: 3
+          error:
+            code: InternalError
+            message: "stream terminated upstream"
