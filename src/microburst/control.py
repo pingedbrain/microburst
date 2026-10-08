@@ -6,6 +6,7 @@ fired-fault audit log, and presets. Never expose it beyond localhost.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from aiohttp import web
@@ -56,10 +57,21 @@ async def handle_control(microburst, request: web.Request):
             )
         return web.json_response([to_dict(r) for r in rules])
 
+    if tail == "fired/stream" and method == "GET":
+        return await _fired_stream(microburst, request)
+
     if tail == "fired":
         if method == "GET":
             limit = int(request.rel_url.query.get("limit", "100"))
             events = list(microburst.fired)[-limit:]
+            q = request.rel_url.query
+            if "service" in q:
+                events = [e for e in events if e.service == q["service"]]
+            if "operation" in q:
+                events = [e for e in events if e.operation == q["operation"]]
+            if "rule_id" in q:
+                rid = int(q["rule_id"])
+                events = [e for e in events if e.rule_id == rid]
             return web.json_response([e.to_dict() for e in events])
         if method == "DELETE":
             microburst.fired.clear()
@@ -81,3 +93,33 @@ async def handle_control(microburst, request: web.Request):
         return web.json_response([to_dict(r) for r in rules])
 
     return web.json_response({"error": "unknown control path"}, status=404)
+
+
+async def _fired_stream(microburst, request: web.Request) -> web.StreamResponse:
+    """Server-Sent Events tail of the fired log — every injected fault,
+    live. Comment lines are keepalives; the stream never ends."""
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+    await response.prepare(request)
+
+    queue = microburst.subscribe_fired()
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=15)
+                await response.write(
+                    f"data: {json.dumps(event)}\n\n".encode()
+                )
+            except asyncio.TimeoutError:
+                await response.write(b": keepalive\n\n")
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        microburst.unsubscribe_fired(queue)
+    return response

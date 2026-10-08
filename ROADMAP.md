@@ -72,17 +72,19 @@ query-marker + required-header disambiguation.
 - ~~Header matchers~~ ✅ — `headers: {name: substring}` (AND'd, `""` =
   presence check, same semantics as `resource`).
 - Nested body matchers for XML payloads (rest-xml bodies don't parse today).
-- Rule TTL/expiration. `[size:S]`
+- ~~Rule TTL/expiration~~ ✅ — `ttl_s`, with `ttl_remaining_s` surfaced in
+  GET /rules.
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
   the request identity; same resource always lands on the same side of p,
   and failure tiers nest monotonically.
 
 ## Control plane (`control.py`)
 
-- Live fired-event stream — SSE or WebSocket tail of `/_microburst/fired`.
-  `[size:M]` (would make the demo and dashboards live)
+- ~~Live fired-event stream~~ ✅ — `GET /_microburst/fired/stream` SSE,
+  bounded per-consumer queues, keepalives.
+- ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` on GET /fired
+  (time-range still open).
 - `/metrics` Prometheus endpoint. `[good-first-issue]`
-- Fired log filters (service/operation/rule_id/time range). `[size:S]`
 - OTel span emission per injected fault. `[size:L]`
 
 ## Data plane (`forward.py`)

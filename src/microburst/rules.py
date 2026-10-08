@@ -58,14 +58,18 @@ class Rule:
     latency: Latency | None = None
     timeout_ms: float | None = None
     reset: bool = False
+    ttl_s: float | None = None     # rule expires N seconds after creation
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
+    created_ts: float = field(default_factory=time.time)
     _body_expr: object = field(default=None, repr=False)
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
     def matches(self, info: RequestContext) -> bool:
         if self.times is not None and self.fired_count >= self.times:
+            return False
+        if self.ttl_s is not None and time.time() - self.created_ts >= self.ttl_s:
             return False
         if self.service and self.service != "*" and self.service != info.service:
             return False
@@ -150,6 +154,7 @@ def from_dict(data: dict) -> Rule:
         ),
         timeout_ms=data.get("timeout_ms"),
         reset=bool(data.get("reset", False)),
+        ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
     )
     if rule.body is not None:
         try:
@@ -195,6 +200,10 @@ def to_dict(rule: Rule) -> dict:
         out["timeout_ms"] = rule.timeout_ms
     if rule.reset:
         out["reset"] = True
+    if rule.ttl_s is not None:
+        out["ttl_s"] = rule.ttl_s
+        remaining = rule.ttl_s - (time.time() - rule.created_ts)
+        out["ttl_remaining_s"] = max(0.0, round(remaining, 1))
     out["fired_count"] = rule.fired_count
     return out
 

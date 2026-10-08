@@ -106,6 +106,7 @@ curl localhost:9999/_microburst/fired
                              # always lands on the same side of p (reproducible
                              # "this bucket always fails" without RNG seeds)
   times: 3                   # fire at most N times, then pass through
+  ttl_s: 120                 # rule expires N seconds after creation
   error:
     code: SlowDown           # omit → samples a plausible modeled exception
     status: 503              # omit → modeled/curated AWS status
@@ -130,7 +131,8 @@ surface.
 |---|---|---|
 | GET | `/_microburst/health` | upstream, rule count, requests seen |
 | GET · POST · PATCH · DELETE | `/_microburst/rules` | list / replace / append / clear rules |
-| GET · DELETE | `/_microburst/fired` | fault audit log / clear it |
+| GET · DELETE | `/_microburst/fired` | fault audit log / clear it — GET filters: `?service=&operation=&rule_id=&limit=` |
+| GET | `/_microburst/fired/stream` | live SSE tail — every fault as it fires |
 | GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |
 
 Load rules at startup with `microburst --config chaos.yml`

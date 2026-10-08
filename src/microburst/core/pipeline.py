@@ -8,6 +8,7 @@ aiohttp middleware chain — the semantics are "decide and respond", not
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import deque
@@ -34,7 +35,18 @@ class Microburst:
         if rules:
             self.engine.set_rules(rules)
         self.fired: deque[FiredEvent] = deque(maxlen=fired_capacity)
+        # SSE subscribers: each is an asyncio.Queue receiving event dicts.
+        # Bounded — a slow consumer drops events rather than growing memory.
+        self._listeners: set[asyncio.Queue] = set()
         self.requests_seen = 0
+
+    def subscribe_fired(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._listeners.add(q)
+        return q
+
+    def unsubscribe_fired(self, q: asyncio.Queue) -> None:
+        self._listeners.discard(q)
 
     async def start(self, app: web.Application) -> None:
         await self.upstream.start()
@@ -63,18 +75,23 @@ class Microburst:
         if decision is not None:
             ctx.decision = decision
             action = describe(decision)
-            self.fired.append(
-                FiredEvent(
-                    ts=time.time(),
-                    rule_id=decision.rule.id,
-                    service=ctx.service,
-                    operation=ctx.operation,
-                    resource=ctx.resource,
-                    region=ctx.region,
-                    action=action,
-                    path=request.rel_url.raw_path_qs,
-                )
+            event = FiredEvent(
+                ts=time.time(),
+                rule_id=decision.rule.id,
+                service=ctx.service,
+                operation=ctx.operation,
+                resource=ctx.resource,
+                region=ctx.region,
+                action=action,
+                path=request.rel_url.raw_path_qs,
             )
+            self.fired.append(event)
+            payload = event.to_dict()
+            for q in self._listeners:
+                try:
+                    q.put_nowait(payload)
+                except asyncio.QueueFull:
+                    pass  # slow consumer drops events, never blocks the proxy
             logger.info(
                 "FIRED rule=%s %s %s %s",
                 decision.rule.id, ctx.service, ctx.operation, action,
