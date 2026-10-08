@@ -57,6 +57,6 @@ def resolve_operation(
 
     protocol = get_protocol(service)
     if protocol in ("rest-xml", "rest-json"):
-        return match_rest_operation(service, method, path, query, headers)
+        return match_rest_operation(service, method, path, query, headers, body)
 
     return None

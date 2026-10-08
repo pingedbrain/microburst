@@ -7,6 +7,8 @@ endpoint prefixes. Everything is lazy and cached.
 
 from __future__ import annotations
 
+from functools import cache
+
 import botocore.session
 
 # SigV4 credential scopes that differ from the botocore service name.
@@ -355,18 +357,35 @@ _KNOWN_STATUS = {
 }
 
 
-def _modeled_status(service: str, name: str) -> int | None:
-    """httpStatusCode from the raw service model, when modeled."""
+@cache
+def _modeled_status_map(service: str) -> dict[str, int]:
+    """httpStatusCode per error shape, indexed by shape name AND wire code.
+
+    The wire code is what AWS puts on the wire (``error.code`` trait) and
+    what users copy from ``ClientError`` — it can differ from the shape
+    name (e.g. autoscaling ``ResourceContentionFault`` → ``ResourceContention``).
+    """
     try:
         loader = _session.get_component("data_loader")
         model = loader.load_service_model(service, "service-2")
-        shape = model.get("shapes", {}).get(name)
-        if shape:
-            status = shape.get("error", {}).get("httpStatusCode")
-            return status if isinstance(status, int) else None
     except Exception:  # noqa: BLE001 — service model may be absent/partial
-        return None
-    return None
+        return {}
+    out: dict[str, int] = {}
+    for name, shape in model.get("shapes", {}).items():
+        err = shape.get("error")
+        if not isinstance(err, dict):
+            continue
+        status = err.get("httpStatusCode")
+        if not isinstance(status, int):
+            continue
+        out.setdefault(name, status)
+        out.setdefault(err.get("code") or name, status)
+    return out
+
+
+def _modeled_status(service: str, name: str) -> int | None:
+    """httpStatusCode from the raw service model, when modeled."""
+    return _modeled_status_map(service).get(name)
 
 
 def error_http_status(service: str, code: str, default: int = 503) -> int:

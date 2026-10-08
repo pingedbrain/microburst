@@ -48,6 +48,50 @@ def test_error_code_roundtrips(service):
     )
 
 
+def _unique_wire_codes(service):
+    """{wire_code: modeled_http_status or None} deduped across all ops.
+
+    The wire code is the ``error.code`` trait when present, else the shape
+    name — i.e. the string AWS actually puts on the wire and users copy
+    out of ``ClientError``.
+    """
+    model = _model(service)
+    out: dict[str, int | None] = {}
+    for op_name in model.operation_names:
+        for shape in model.operation_model(op_name).error_shapes:
+            err = shape.metadata.get("error") or {}
+            code = err.get("code") or shape.name
+            out.setdefault(code, err.get("httpStatusCode"))
+    return out
+
+
+@pytest.mark.parametrize("service", _SERVICES, ids=_SERVICES)
+def test_every_modeled_error_roundtrips(service):
+    """Fuzz: render every modeled error code of the service and verify the
+    SDK parser recovers it, and the status matches the modeled
+    ``httpStatusCode`` when the model declares one."""
+    model = _model(service)
+    cases = _unique_wire_codes(service)
+    if not cases:
+        pytest.skip("no modeled error shapes")
+    parser = create_parser(model.protocol)
+    failures = []
+    for code, want_status in cases.items():
+        status, headers, body = render_error(service, code, "fuzz")
+        parsed = parser.parse(
+            {"status_code": status, "headers": dict(headers), "body": body},
+            None,
+        )
+        got = (parsed.get("Error") or {}).get("Code")
+        if got != code:
+            failures.append(f"code {code!r} -> {got!r}")
+        if isinstance(want_status, int) and status != want_status:
+            failures.append(
+                f"status for {code!r}: rendered {status}, modeled {want_status}"
+            )
+    assert not failures, f"{service}: " + "; ".join(failures[:10])
+
+
 def test_query_compat_mode_roundtrips():
     """Services migrated to rpc-v2-cbor still accept query-compat JSON —
     the error must carry x-amzn-query-error so the *json* parser

@@ -74,3 +74,56 @@ def test_unsigned_request_no_service():
     info = detect({}, "GET", "/foo", {}, None)
     assert info.service is None
     assert info.operation is None
+
+
+def test_rest_json_body_disambiguates_tag_untag():
+    headers = _auth("chime-sdk-identity")
+    tag = detect(
+        headers, "POST", "/tags", {},
+        b'{"ResourceARN":"arn:x","Tags":[{"Key":"a","Value":"b"}]}',
+    )
+    untag = detect(
+        headers, "POST", "/tags", {},
+        b'{"ResourceARN":"arn:x","TagKeys":["a"]}',
+    )
+    assert tag.operation == "TagResource"
+    assert untag.operation == "UntagResource"
+
+
+def test_rest_xml_body_disambiguates_s3_bucket_puts():
+    headers = _auth("s3")
+    info = detect(
+        headers, "PUT", "/mybucket", {},
+        b'<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+        b"<TagSet/></Tagging>",
+    )
+    assert info.operation == "PutBucketTagging"
+
+
+def test_rest_xml_lifecycle_root():
+    headers = _auth("s3")
+    info = detect(
+        headers, "PUT", "/mybucket", {},
+        b"<LifecycleConfiguration><Rule/></LifecycleConfiguration>",
+    )
+    assert info.operation in ("PutBucketLifecycle", "PutBucketLifecycleConfiguration")
+
+
+def test_rest_raw_body_favors_payload_op():
+    # ImportApiKeys needs the ?mode=import marker, but a raw CSV body must
+    # never resolve to a structure-demanding op.
+    headers = _auth("apigateway")
+    info = detect(
+        headers, "POST", "/apikeys", {"mode": "import"}, b"key1,key2"
+    )
+    assert info.operation == "ImportApiKeys"
+
+
+def test_rest_json_required_keys_disambiguate_sso_oidc():
+    headers = _auth("sso-oidc")
+    info = detect(
+        headers, "POST", "/token", {},
+        b'{"assertion":"a","clientId":"c","grantType":"g",'
+        b'"subjectToken":"s","subjectTokenType":"t"}',
+    )
+    assert info.operation == "CreateTokenWithIAM"
