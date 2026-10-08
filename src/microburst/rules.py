@@ -41,6 +41,7 @@ class Rule:
     operation: str | None = None
     region: str | None = None
     resource: str | None = None
+    headers: dict[str, str] | None = None
     probability: float = 1.0
     deterministic: bool = False
     times: int | None = None
@@ -60,7 +61,16 @@ class Rule:
             return False
         if self.region and self.region != info.region:
             return False
-        return not (self.resource and (info.resource is None or self.resource not in info.resource))
+        if self.resource and (info.resource is None or self.resource not in info.resource):
+            return False
+        if self.headers:
+            for name, needle in self.headers.items():
+                value = _header(info.headers, name)
+                # "" needle = presence check; otherwise substring — same
+                # semantics as the resource matcher
+                if value is None or needle not in value:
+                    return False
+        return True
 
 
 @dataclass
@@ -80,6 +90,11 @@ def from_dict(data: dict) -> Rule:
         operation=data.get("operation"),
         region=data.get("region"),
         resource=data.get("resource"),
+        headers=(
+            {str(k): str(v) for k, v in data["headers"].items()}
+            if isinstance(data.get("headers"), dict)
+            else None
+        ),
         probability=float(data.get("probability", 1.0)),
         deterministic=bool(data.get("deterministic", False)),
         times=data.get("times"),
@@ -102,6 +117,8 @@ def to_dict(rule: Rule) -> dict:
         value = getattr(rule, attr)
         if value is not None:
             out[attr] = value
+    if rule.headers:
+        out["headers"] = rule.headers
     if rule.probability != 1.0:
         out["probability"] = rule.probability
     if rule.deterministic:
@@ -238,6 +255,15 @@ PRESETS: dict[str, dict] = {
         "error": {"code": "InternalError", "status": 500},
     },
 }
+
+
+def _header(headers, name: str) -> str | None:
+    """Case-insensitive header lookup — works on CIMultiDict and plain dicts."""
+    lname = name.lower()
+    for k, v in headers.items():
+        if k.lower() == lname:
+            return v
+    return None
 
 
 def _draw(info: RequestContext) -> float:

@@ -67,7 +67,8 @@ query-marker + required-header disambiguation.
 
 - Body matchers — jmespath/JSONPath expressions on the request payload.
   `[size:M]` (big contributor unlock)
-- Header matchers. `[good-first-issue]`
+- ~~Header matchers~~ ✅ — `headers: {name: substring}` (AND'd, `""` =
+  presence check, same semantics as `resource`).
 - Rate-based rules — N faults per window, not just probability. `[size:M]`
 - Sequences — fail N, pass M, repeat (a chaos script per rule). `[size:M]`
 - Rule TTL/expiration. `[size:S]`

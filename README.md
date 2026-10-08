@@ -95,6 +95,9 @@ curl localhost:9999/_microburst/fired
   operation: PutItem         # optional; resolved per AWS protocol
   region: us-east-1          # optional
   resource: orders           # substring of table/bucket/queue/…
+  headers:                   # optional; all must match (substring)
+    x-amz-acl: public-read   # e.g. only canned-ACL puts
+    x-amz-copy-source: ""    # "" = presence check (e.g. CopyObject)
   probability: 0.5           # default 1.0
   deterministic: true        # hash the request identity — the same resource
                              # always lands on the same side of p (reproducible

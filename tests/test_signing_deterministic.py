@@ -125,3 +125,59 @@ def test_random_rule_still_varies():
     )
     decisions = [engine.decide(_ctx("same")) is not None for _ in range(50)]
     assert any(decisions) and not all(decisions)
+
+
+# -- header matchers ---------------------------------------------------------
+
+
+def _ctx_h(headers, service="s3"):
+    return RequestContext(
+        service=service, operation="GetObject", headers=headers
+    )
+
+
+def test_header_substring_match():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "headers": {"x-amz-acl": "public-read"},
+          "error": {"code": "AccessDenied"}}]
+    )
+    assert engine.decide(_ctx_h({"X-Amz-Acl": "public-read-write"})) is not None
+    assert engine.decide(_ctx_h({"X-Amz-Acl": "private"})) is None
+    assert engine.decide(_ctx_h({})) is None
+
+
+def test_header_presence_check():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "headers": {"x-amz-copy-source": ""},
+          "error": {"code": "SlowDown"}}]
+    )
+    # CopyObject carries x-amz-copy-source — presence alone matches
+    assert engine.decide(_ctx_h({"x-amz-copy-source": "b/k"})) is not None
+    assert engine.decide(_ctx_h({})) is None
+
+
+def test_header_multiple_and():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "headers": {"x-amz-acl": "public", "x-amz-meta-team": "core"},
+          "error": {"code": "SlowDown"}}]
+    )
+    assert engine.decide(_ctx_h({"x-amz-acl": "public-read", "x-amz-meta-team": "core"})) is not None
+    assert engine.decide(_ctx_h({"x-amz-acl": "public-read"})) is None
+
+
+def test_header_case_insensitive_name():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "headers": {"X-Copy-Source": "bucket"},
+          "error": {"code": "SlowDown"}}]
+    )
+    assert engine.decide(_ctx_h({"x-copy-source": "bucket/k"})) is not None
+
+
+def test_header_yaml_int_normalized():
+    from microburst.rules import from_dict
+    rule = from_dict({"service": "s3", "headers": {"x-attempt": 1}})
+    assert rule.headers == {"x-attempt": "1"}
