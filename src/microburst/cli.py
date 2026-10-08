@@ -8,6 +8,7 @@ import sys
 
 from aiohttp import web
 
+from microburst import __version__
 from microburst.app import load_config, make_app
 from microburst.core.pipeline import Microburst
 
@@ -18,6 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="AWS failure injection proxy — inject realistic AWS "
         "errors, latency, and connection faults between your app and any "
         "AWS endpoint (MiniStack, moto, or real AWS).",
+    )
+    parser.add_argument(
+        "--version", "-V", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--upstream", "-u", default=None,

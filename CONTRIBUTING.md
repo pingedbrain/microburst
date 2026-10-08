@@ -18,3 +18,29 @@ ruff check src/ tests/
   in `/_microburst/fired` or not happen at all.
 - The control API is intentionally unauthenticated (local dev tool). Don't
   add features that make it safe to expose — document instead.
+
+## Releasing
+
+Versioning is **tag-driven** (`hatch-vcs`): the git tag is the single source
+of truth — there is no version field to bump. Commits after the last tag
+build as `X.Y.Z.devN+gHASH`.
+
+Process (maintainer only):
+
+1. Update `CHANGELOG.md` — move items under a new `## [X.Y.Z]` heading.
+2. Tag and release:
+   ```bash
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   gh release create vX.Y.Z --notes-file RELEASE_NOTES.md
+   ```
+   (or write notes in the GitHub UI)
+3. The `release.yml` workflow builds from the tag and publishes to PyPI
+   via OIDC — the built version equals the tag automatically.
+
+Versioning policy (semver, applied to the **public surface**: CLI flags,
+rule schema, and `/_microburst/*` API — internal Python APIs are free to
+change until 1.0):
+
+- **patch**: fixes that don't change observable behavior
+- **minor**: new fault types, new matchers, new control endpoints, new flags
+- **major**: rule schema changes, removed endpoints/flags, renamed options

@@ -7,3 +7,4 @@ build/
 .ruff_cache/
 .apache-magpie-local/
 .claude/
+src/microburst/_version.py

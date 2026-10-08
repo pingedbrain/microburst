@@ -5,21 +5,53 @@ Organized by extension seam — the architecture is built so each item is
 `[size]` is a rough effort hint; `[good-first-issue]` marks items that are
 self-contained and need no deep context.
 
+## Current coverage (measured, botocore 1.40)
+
+436 modeled services:
+
+| Protocol | Services | Status |
+|---|---|---|
+| `json` | 137 | ✅ X-Amz-Target + JSON envelope |
+| `query` | 17 | ✅ `Action=` + XML envelope |
+| `ec2` | 1 | ✅ (shares query serializer) |
+| `rest-json` | 259 | ✅ path matching + JSON envelope |
+| `rest-xml` | 4 | ✅ path matching + XML envelope (s3, cloudfront, route53, s3control) |
+| `smithy-rpc-v2-cbor` | 18 | ❌ **not implemented** — incl. cloudwatch, gamelift, eventbridgev2, appstream, snowball, comprehendmedical |
+
+Service detection: SigV4 scope covers everything signed. Operation detection:
+json/query/ec2 resolve by name; REST resolves by method+path with
+query-marker + required-header disambiguation.
+
 ## Detection (`detection/`)
 
+- **rpc-v2-cbor support** — the biggest single gap: 18 services *including
+  CloudWatch*. Errors are CBOR bodies `{"__type": code, "message": msg}`
+  + `x-amzn-requestid` header + `smithy-protocol: rpc-v2-cbor`; needs a
+  ~30-line minimal CBOR encoder (map + strings). `[size:M]`
+- **Scope aliases** — 9 signing names don't resolve to a service today:
+  `execute-api`→apigatewaymanagementapi, `elasticfilesystem`→efs,
+  `states`→stepfunctions, `mturk-requester`→mturk, `mobiletargeting`→pinpoint,
+  `models-v2-lex`→lexv2-runtime, `iotdevice`→iot, `awstransfer`→transfer,
+  `aws-migration-hub`→mgh. `[good-first-issue]`
 - Presigned URL detection — `X-Amz-Credential` in the query string carries
   the same scope fields as the Authorization header. `[good-first-issue]`
 - Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
   `queue.amazonaws.com` style hosts) for upstreams that route on Host.
-- Body-aware operation disambiguation beyond current scoring
-  (e.g. S3 `?acl`, `?policy`, `?lifecycle` subresources). `[size:M]`
+- **Body-based REST disambiguation** — measured: 14/263 REST services have
+  method+path collisions (S3: 113 ops in 9 routes; chime*: ~60 ops; plus
+  glacier/qbusiness/sso-oidc pairs). Query markers + required headers
+  already resolve the S3 subresource family (`?acl`, `?tagging`…); what
+  remains is body-driven (`TagResource` vs `UntagResource`, chime POST
+  families). `[size:M]`
 - SigV4A / multi-region scope parsing.
 
 ## Protocols (`protocols/`)
 
+- `rpc-v2-cbor` serializer (pairs with the detection item above). `[size:M]`
 - `aws-json-1.1` variant detection + envelope differences. `[good-first-issue]`
 - `__type` namespacing: emit `prefix#Code` vs bare `Code` where the service
   expects it. `[size:S]`
+- Query-compat error header for cbor (`x-amzn-query-error: Code;Type`). `[size:S]`
 - Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
   DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
 
@@ -67,8 +99,8 @@ self-contained and need no deep context.
   and assert each parses to the right code in the SDK. `[size:M]`
 - Multi-SDK matrix — boto3, aws-sdk-js-v3, aws-sdk-java, aws-sdk-go v2.
   Same wire format, different header quirks. `[size:M]`
-- S3 operation disambiguation fuzz — every ambiguous method+path pair in
-  the model, verified.
+- REST collision sweep — run every ambiguous method+path pair through the
+  matcher (S3's 9 routes, chime families) and snapshot expected ops. `[size:S]`
 
 ## Ecosystem
 
