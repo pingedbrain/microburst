@@ -1,10 +1,14 @@
 # microburst
 
+[![ci](https://github.com/pingedbrain/microburst/actions/workflows/ci.yml/badge.svg)](https://github.com/pingedbrain/microburst/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/microburst)](https://pypi.org/project/microburst/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **AWS failure injection proxy.** Point your SDK at microburst instead of your AWS
 endpoint and inject realistic faults — throttling, latency, timeouts,
 connection resets — that the SDK treats exactly like real AWS failures.
 
-Works against **any** upstream: MiniStack, moto, LocalStack, or real AWS.
+Works against **any** upstream: MiniStack, moto, or real AWS.
 
 ## Why
 

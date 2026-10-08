@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="microburst",
         description="AWS failure injection proxy — inject realistic AWS "
         "errors, latency, and connection faults between your app and any "
-        "AWS endpoint (MiniStack, moto, LocalStack, or real AWS).",
+        "AWS endpoint (MiniStack, moto, or real AWS).",
     )
     parser.add_argument(
         "--upstream", "-u", default=None,

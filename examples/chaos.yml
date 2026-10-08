@@ -1,5 +1,5 @@
 # microburst config example
-upstream: http://localhost:4566   # MiniStack — also works with moto, LocalStack, real AWS
+upstream: http://localhost:4566   # MiniStack — also works with moto or real AWS
 port: 9999
 
 rules:

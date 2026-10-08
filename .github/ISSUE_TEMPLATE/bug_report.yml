@@ -1,0 +1,30 @@
+name: Bug report
+description: Something injected or forwarded by microburst behaves wrong
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: microburst version
+      placeholder: 0.1.0
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Expected vs. actual. If an SDK misclassified an injected error, say which SDK + version.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The rule (YAML or control-API call), the upstream (MiniStack/moto/real AWS), and the client call.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Fired log / responses
+      description: Output of GET /_microburst/fired and any SDK error you saw.
+      render: text

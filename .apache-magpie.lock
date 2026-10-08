@@ -1,0 +1,11 @@
+# .apache-magpie.lock — committed. Adoption record for Apache Magpie.
+# This repo recommends the framework's baseline floor to every contributor.
+# See https://magpie.apache.org/docs/setup/team-adoption
+
+method: marketplace
+url: https://github.com/apache/magpie
+min_version: "0.9.0"
+plugins:
+  - magpie-setup        # installs/upgrades/configures the framework
+  - magpie-agent-guard  # pre-execution shell guard — safety net
+  - magpie-utilities    # list-skills and small inspection tools

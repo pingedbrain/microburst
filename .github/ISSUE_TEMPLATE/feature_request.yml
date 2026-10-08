@@ -1,0 +1,22 @@
+name: Feature request
+description: New fault types, protocols, matchers, or integrations
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: A resilience scenario you can't test today with microburst.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: Rule syntax, effect, or API shape you have in mind.
+      render: yaml
+  - type: textarea
+    id: evidence
+    attributes:
+      label: AWS behavior evidence
+      description: What real AWS returns for this case (docs, SDK behavior, observed responses). Guesses are fine — say so.
