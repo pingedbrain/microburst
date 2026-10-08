@@ -112,3 +112,35 @@ def test_error_rule_still_wins_over_response(fat_upstream, microburst_server):
     with pytest.raises(urllib.error.HTTPError) as ei:
         urllib.request.urlopen(req, timeout=15)
     assert ei.value.status == 503
+
+
+# -- XML body matchers -------------------------------------------------------
+
+
+def test_xml_body_matcher(microburst_server, fat_upstream):
+    from microburst.core.context import RequestContext
+    from microburst.rules import RuleEngine
+
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3",
+          "body": "Tagging.TagSet.Tag[?Key=='env'].Value | [0] == 'prod'"}]
+    )
+    rule = engine.rules[0]
+    xml = (
+        b"<Tagging><TagSet>"
+        b"<Tag><Key>env</Key><Value>prod</Value></Tag>"
+        b"<Tag><Key>team</Key><Value>core</Value></Tag>"
+        b"</TagSet></Tagging>"
+    )
+    ctx = RequestContext(
+        service="s3", operation="PutBucketTagging", region="us-east-1",
+        resource="bucket", headers={}, body=xml,
+    )
+    assert rule.matches(ctx)
+    ctx2 = RequestContext(
+        service="s3", operation="PutBucketTagging", region="us-east-1",
+        resource="bucket", headers={},
+        body=xml.replace(b"prod", b"dev"),
+    )
+    assert not rule.matches(ctx2)

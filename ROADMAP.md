@@ -56,11 +56,14 @@ query-marker + required-header disambiguation.
 
 ## Effects (`effects/`)
 
-- Corrupt body — malformed JSON/XML that exercises SDK deserialization,
-  not just error handling. `[good-first-issue]`
-- Truncated response — valid envelope, body cut short. `[size:M]`
-- Mid-stream abort — send headers + partial body, then die. `[size:M]`
-- Bandwidth shaping — throttle streamed response bytes/sec. `[size:M]`
+- ~~Corrupt body~~ ✅ — `response: {corrupt_bytes: N}` flips N bytes in the
+  buffered body (200 OK, same length, wrong payload).
+- ~~Truncated response~~ ✅ — `response: {truncate_frac|truncate_bytes}` —
+  Content-Length stripped, valid envelope, body cut short.
+- ~~Mid-stream abort~~ ✅ — `response: {abort_frac|abort_bytes}` — partial
+  body, then the connection dies (client sees incomplete read).
+- ~~Bandwidth shaping~~ ✅ — `response: {bandwidth_kbps}` paces the body
+  stream at KiB/s.
 - ~~Latency distributions (gaussian, spike)~~ ✅ — `latency: {dist: gaussian,
   mean, stddev, min?, max?}` and `{dist: spike, min, max, spike_ms, spike_p}`;
   uniform stays the default.
@@ -73,7 +76,8 @@ query-marker + required-header disambiguation.
 - ~~Sequences~~ ✅ — `sequence: {fail, pass}` repeating pattern per rule.
 - ~~Header matchers~~ ✅ — `headers: {name: substring}` (AND'd, `""` =
   presence check, same semantics as `resource`).
-- Nested body matchers for XML payloads (rest-xml bodies don't parse today).
+- ~~Nested body matchers for XML payloads~~ ✅ — rest-xml bodies (S3
+  Tagging/ACL/Lifecycle) parse to dicts for jmespath.
 - ~~Rule TTL/expiration~~ ✅ — `ttl_s`, with `ttl_remaining_s` surfaced in
   GET /rules.
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
@@ -89,7 +93,9 @@ query-marker + required-header disambiguation.
 - ~~`/metrics` Prometheus endpoint~~ ✅ — requests/faults by (service,
   operation, action) + rules gauge. Counters survive fired-log deque
   eviction.
-- OTel span emission per injected fault. `[size:L]`
+- ~~OTel span emission per injected fault~~ ✅ — `microburst.fault` spans
+  via optional `opentelemetry-api` (`pip install microburst[otel]`);
+  no-op when absent.
 
 ## Data plane (`forward.py`)
 
@@ -100,8 +106,12 @@ query-marker + required-header disambiguation.
 
 ## Fidelity & verification
 
-- **Fidelity harness** — run the same call against real AWS + microburst,
-  diff the envelopes byte-for-byte, publish a per-service fidelity report.
+- **Fidelity harness** — ~~headless phase done~~ ✅: `test_fidelity.py`
+  renders every service's error and parses it with botocore's own
+  protocol parser — `Error.Code` round-trips for all 436 services
+  (437 checks). Open: live diff against real AWS — run the same call
+  against AWS + microburst, diff envelopes, publish a per-service
+  fidelity report.
   The strongest moat: evidence-grade correctness claims. `[size:L]`
 - Error-shape fuzzing — iterate every modeled exception of every operation
   and assert each parses to the right code in the SDK. `[size:M]`

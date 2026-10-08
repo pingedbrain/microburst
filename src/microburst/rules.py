@@ -12,6 +12,7 @@ import itertools
 import json
 import random
 import time
+import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl
@@ -379,8 +380,9 @@ _UNPARSED = object()
 
 def _body_value(info: RequestContext):
     """Parse the request body for jmespath — JSON first, then form-encoded
-    (query-protocol services post Action&Param= form bodies). Cached on the
-    context so a rule chain parses at most once."""
+    (query-protocol services post Action&Param= form bodies), then XML
+    (rest-xml: S3 tagging/ACL/lifecycle payloads). Cached on the context
+    so a rule chain parses at most once."""
     cached = getattr(info, "_parsed_body", _UNPARSED)
     if cached is not _UNPARSED:
         return cached
@@ -389,12 +391,47 @@ def _body_value(info: RequestContext):
         try:
             parsed = json.loads(info.body)
         except (ValueError, UnicodeDecodeError):
-            try:
-                parsed = dict(parse_qsl(info.body.decode("utf-8", "replace")))
-            except Exception:  # noqa: BLE001 — opaque bodies just don't match
-                parsed = None
+            stripped = info.body.lstrip()
+            if stripped.startswith(b"<"):
+                parsed = _xml_to_dict(info.body)
+            else:
+                try:
+                    parsed = dict(
+                        parse_qsl(info.body.decode("utf-8", "replace"))
+                    )
+                except Exception:  # noqa: BLE001 — opaque bodies don't match
+                    parsed = None
     info._parsed_body = parsed
     return parsed
+
+
+def _xml_to_dict(body: bytes):
+    """rest-xml bodies → nested dict for jmespath. Repeated siblings become
+    lists; namespaces are stripped. Returns None on unparseable XML."""
+    def strip(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    def node(el):
+        children = list(el)
+        if not children:
+            return el.text or ""
+        out: dict = {}
+        for child in children:
+            key = strip(child.tag)
+            val = node(child)
+            if key in out:
+                if not isinstance(out[key], list):
+                    out[key] = [out[key]]
+                out[key].append(val)
+            else:
+                out[key] = val
+        return out
+
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return None
+    return {strip(root.tag): node(root)}
 
 
 def _header(headers, name: str) -> str | None:

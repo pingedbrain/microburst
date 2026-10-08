@@ -20,6 +20,7 @@ from microburst.detection import detect, should_buffer
 from microburst.effects import apply_decision
 from microburst.forward import Upstream
 from microburst.rules import FiredEvent, RuleEngine, describe
+from microburst.tracing import fault_span
 
 logger = logging.getLogger("microburst")
 
@@ -99,14 +100,17 @@ class Microburst:
                 "FIRED rule=%s %s %s %s",
                 decision.rule.id, ctx.service, ctx.operation, action,
             )
-            fault = await apply_decision(request, ctx, decision)
-            if fault is not None:
-                return fault
-            # terminal effects didn't fire → forward, possibly mutating
-            # the response on the way back (truncate/abort/corrupt/shape)
-            return await self.upstream.relay(
-                request, body, mutator=decision.response_fault
-            )
+            with fault_span(
+                decision.rule.id, ctx.service, ctx.operation, action
+            ):
+                fault = await apply_decision(request, ctx, decision)
+                if fault is not None:
+                    return fault
+                # terminal effects didn't fire → forward, possibly
+                # mutating the response on the way back
+                return await self.upstream.relay(
+                    request, body, mutator=decision.response_fault
+                )
 
         return await self.upstream.relay(request, body)
 

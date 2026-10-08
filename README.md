@@ -118,6 +118,13 @@ curl localhost:9999/_microburst/fired
                                    #  spike_ms: 5000, spike_p: 0.05}
   timeout_ms: 30000                # hold the connection, then 504
   reset: true                      # abort the TCP connection
+  response:                        # post-forward: mutate the upstream response
+    truncate_frac: 0.5             # valid envelope, body cut short (or
+                                   # truncate_bytes: N)
+    abort_frac: 0.3                # send 30%, then kill the connection
+                                   # mid-stream (or abort_bytes: N)
+    corrupt_bytes: 16              # flip N bytes — 200 OK, wrong payload
+    bandwidth_kbps: 64             # cap downstream throughput
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
