@@ -89,7 +89,7 @@ def detect(
     query: Mapping[str, str],
     body: bytes | None,
 ) -> RequestContext:
-    service, region, access_key = parse_credential_scope(headers)
+    service, region, access_key = parse_credential_scope(headers, query)
     # The target prefix resolves service *exactly* — it disambiguates the
     # shared SigV4 scopes (dynamodb vs dynamodbstreams, events vs
     # eventbridgev2) and identifies requests whose scope didn't resolve.

@@ -7,6 +7,7 @@ evaluate in order; the first matching rule wins per request.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import random
 import time
@@ -41,6 +42,7 @@ class Rule:
     region: str | None = None
     resource: str | None = None
     probability: float = 1.0
+    deterministic: bool = False
     times: int | None = None
     error: FaultError | None = None
     latency: Latency | None = None
@@ -79,6 +81,7 @@ def from_dict(data: dict) -> Rule:
         region=data.get("region"),
         resource=data.get("resource"),
         probability=float(data.get("probability", 1.0)),
+        deterministic=bool(data.get("deterministic", False)),
         times=data.get("times"),
         error=FaultError(**error) if isinstance(error, dict) else None,
         latency=(
@@ -101,6 +104,8 @@ def to_dict(rule: Rule) -> dict:
             out[attr] = value
     if rule.probability != 1.0:
         out["probability"] = rule.probability
+    if rule.deterministic:
+        out["deterministic"] = True
     if rule.times is not None:
         out["times"] = rule.times
     if rule.error:
@@ -165,7 +170,13 @@ class RuleEngine:
         for rule in self._rules:
             if not rule.matches(info):
                 continue
-            if random.random() >= rule.probability:
+            # deterministic: the draw is a hash of the request identity, so
+            # the same resource always lands on the same side of p — "this
+            # bucket always fails", reproducible without RNG seeds. Bonus
+            # property: failure tiers nest (resources failing at p=0.1 are a
+            # subset of those failing at p=0.5).
+            draw = _draw(info) if rule.deterministic else random.random()
+            if draw >= rule.probability:
                 continue
             rule.fired_count += 1
             error = rule.error
@@ -227,6 +238,15 @@ PRESETS: dict[str, dict] = {
         "error": {"code": "InternalError", "status": 500},
     },
 }
+
+
+def _draw(info: RequestContext) -> float:
+    """Stable pseudo-random draw in [0, 1) keyed on request identity."""
+    key = "|".join(
+        str(v) for v in (info.service, info.operation, info.resource, info.access_key)
+    )
+    digest = hashlib.sha256(key.encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
 
 
 @dataclass

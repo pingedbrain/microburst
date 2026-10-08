@@ -30,17 +30,17 @@ query-marker + required-header disambiguation.
 - Wire-protocol detection ✅ — the observed request protocol wins over the
   model's declared protocol (query-compat JSON for migrated services).
   Remaining: true CBOR clients (non-botocore SDKs) still get CBOR errors.
-- Presigned URL detection — `X-Amz-Credential` in the query string carries
-  the same scope fields as the Authorization header. `[good-first-issue]`
-- Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
-  `queue.amazonaws.com` style hosts) for upstreams that route on Host.
+- ~~Presigned URL detection~~ ✅ — `X-Amz-Credential` in the query string
+  resolves service/region/key like the Authorization header.
+- ~~SigV4A~~ ✅ — same credential shape parses; region shows as `*`.
 - **Body-based REST disambiguation** — measured: 14/263 REST services have
   method+path collisions (S3: 113 ops in 9 routes; chime*: ~60 ops; plus
   glacier/qbusiness/sso-oidc pairs). Query markers + required headers
   already resolve the S3 subresource family (`?acl`, `?tagging`…); what
   remains is body-driven (`TagResource` vs `UntagResource`, chime POST
   families). `[size:M]`
-- SigV4A / multi-region scope parsing.
+- Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
+  `queue.amazonaws.com` style hosts) for upstreams that route on Host.
 
 ## Protocols (`protocols/`)
 
@@ -71,8 +71,9 @@ query-marker + required-header disambiguation.
 - Rate-based rules — N faults per window, not just probability. `[size:M]`
 - Sequences — fail N, pass M, repeat (a chaos script per rule). `[size:M]`
 - Rule TTL/expiration. `[size:S]`
-- Per-resource deterministic flakiness — hash(resource) decides; the same
-  bucket always fails instead of coin-flipping per call. `[size:M]`
+- ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
+  the request identity; same resource always lands on the same side of p,
+  and failure tiers nest monotonically.
 
 ## Control plane (`control.py`)
 

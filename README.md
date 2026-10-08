@@ -96,6 +96,9 @@ curl localhost:9999/_microburst/fired
   region: us-east-1          # optional
   resource: orders           # substring of table/bucket/queue/…
   probability: 0.5           # default 1.0
+  deterministic: true        # hash the request identity — the same resource
+                             # always lands on the same side of p (reproducible
+                             # "this bucket always fails" without RNG seeds)
   times: 3                   # fire at most N times, then pass through
   error:
     code: SlowDown           # omit → samples a plausible modeled exception
@@ -144,7 +147,7 @@ against staging accounts.
 - Bodies > 4 MiB are streamed uninspected (resource matchers won't apply;
   service/operation still do for REST services).
 - The control API is unauthenticated — **bind it to localhost only**.
-- S3 presigned URLs are not specially detected yet.
+- SigV4A (multi-region) requests parse fine; rules see `region: "*"`.
 
 ## Demo
 
