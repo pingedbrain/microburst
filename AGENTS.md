@@ -12,17 +12,29 @@ unauthenticated by design and must never be exposed publicly.
 
 ## Layout
 
-- `src/microburst/models.py` — botocore service-model access: protocols,
-  operation/error shapes, `httpStatusCode` lookup, curated status map.
-- `src/microburst/detect.py` — request → (service, operation, region,
-  resource) detection. SigV4 scope → `X-Amz-Target` → `Action=` → REST path.
-- `src/microburst/errors.py` — error serialization per AWS protocol.
+The pipeline is `detect → decide → effect-or-forward`, with registries as
+extension seams:
+
+- `src/microburst/core/context.py` — `RequestContext`: the object that
+  travels the pipeline (raw request + detected fields + decision).
+- `src/microburst/core/pipeline.py` — `Microburst` orchestrator: rule
+  engine, upstream client, fired log, request handlers.
+- `src/microburst/detection/` — scope / operation / rest / resource
+  detectors; `__init__` exposes `detect()` and `should_buffer()`.
+- `src/microburst/protocols/` — error-serializer registry
+  (`@register_serializer` per protocol: json, query+ec2, rest-xml,
+  rest-json). `render_error()` is the facade.
+- `src/microburst/effects/` — composable stages in fixed order
+  (latency → reset → timeout → error), one file per effect.
 - `src/microburst/rules.py` — rule matching engine + presets.
-- `src/microburst/proxy.py` — aiohttp server: forwarding, effects, control
-  API, optional SigV4 re-signing.
-- `src/microburst/cli.py` — entry point and YAML config loading.
-- `tests/` — pytest, self-contained (fixture spins a stub upstream; no
-  external emulator needed).
+- `src/microburst/forward.py` — upstream relay + SigV4 re-signing
+  (data plane only, no decisions).
+- `src/microburst/control.py` — `/_microburst/*` control plane.
+- `src/microburst/models.py` — botocore service-model access.
+- `src/microburst/app.py` / `cli.py` — app wiring + entry point.
+- `tests/` — pytest, self-contained (stub upstream fixture; no external
+  emulator needed).
+- `ROADMAP.md` — planned extensions, organized by seam.
 
 ## Non-negotiable invariants
 

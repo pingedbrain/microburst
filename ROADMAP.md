@@ -1,0 +1,86 @@
+# Roadmap
+
+Organized by extension seam — the architecture is built so each item is
+"add a file in the right package" rather than "touch everything".
+`[size]` is a rough effort hint; `[good-first-issue]` marks items that are
+self-contained and need no deep context.
+
+## Detection (`detection/`)
+
+- Presigned URL detection — `X-Amz-Credential` in the query string carries
+  the same scope fields as the Authorization header. `[good-first-issue]`
+- Host-prefix / virtual-hosted style detection (S3 `bucket.s3…`,
+  `queue.amazonaws.com` style hosts) for upstreams that route on Host.
+- Body-aware operation disambiguation beyond current scoring
+  (e.g. S3 `?acl`, `?policy`, `?lifecycle` subresources). `[size:M]`
+- SigV4A / multi-region scope parsing.
+
+## Protocols (`protocols/`)
+
+- `aws-json-1.1` variant detection + envelope differences. `[good-first-issue]`
+- `__type` namespacing: emit `prefix#Code` vs bare `Code` where the service
+  expects it. `[size:S]`
+- Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
+  DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
+
+## Effects (`effects/`)
+
+- Corrupt body — malformed JSON/XML that exercises SDK deserialization,
+  not just error handling. `[good-first-issue]`
+- Truncated response — valid envelope, body cut short. `[size:M]`
+- Mid-stream abort — send headers + partial body, then die. `[size:M]`
+- Bandwidth shaping — throttle streamed response bytes/sec. `[size:M]`
+- Latency distributions (gaussian, spike) instead of uniform. `[size:S]`
+
+## Rules (`rules.py`)
+
+- Body matchers — jmespath/JSONPath expressions on the request payload.
+  `[size:M]` (big contributor unlock)
+- Header matchers. `[good-first-issue]`
+- Rate-based rules — N faults per window, not just probability. `[size:M]`
+- Sequences — fail N, pass M, repeat (a chaos script per rule). `[size:M]`
+- Rule TTL/expiration. `[size:S]`
+- Per-resource deterministic flakiness — hash(resource) decides; the same
+  bucket always fails instead of coin-flipping per call. `[size:M]`
+
+## Control plane (`control.py`)
+
+- Live fired-event stream — SSE or WebSocket tail of `/_microburst/fired`.
+  `[size:M]` (would make the demo and dashboards live)
+- `/metrics` Prometheus endpoint. `[good-first-issue]`
+- Fired log filters (service/operation/rule_id/time range). `[size:S]`
+- OTel span emission per injected fault. `[size:L]`
+
+## Data plane (`forward.py`)
+
+- HTTP/2 upstream support.
+- Response-side faults — mutate the *upstream* response (strip fields,
+  inject latency mid-stream) rather than only replacing it. `[size:L]`
+- Keep-alive / connection pooling fidelity checks against real AWS.
+
+## Fidelity & verification
+
+- **Fidelity harness** — run the same call against real AWS + microburst,
+  diff the envelopes byte-for-byte, publish a per-service fidelity report.
+  The strongest moat: evidence-grade correctness claims. `[size:L]`
+- Error-shape fuzzing — iterate every modeled exception of every operation
+  and assert each parses to the right code in the SDK. `[size:M]`
+- Multi-SDK matrix — boto3, aws-sdk-js-v3, aws-sdk-java, aws-sdk-go v2.
+  Same wire format, different header quirks. `[size:M]`
+- S3 operation disambiguation fuzz — every ambiguous method+path pair in
+  the model, verified.
+
+## Ecosystem
+
+- Docker image + compose examples. `[good-first-issue]`
+- GitHub Action for CI pipelines (service container + preset flag). `[size:M]`
+- MiniStack-native integration — `/_ministack/chaos`-compatible API so the
+  same faults work without a separate proxy hop.
+- TUI dashboard — live rules + fired stream (leverages the SSE endpoint).
+  `[size:L]`
+
+## Explicitly out of scope (for now)
+
+- TCP-level chaos (Toxiproxy does it — we're the layer above).
+- Infrastructure faults (kill instances, network partitions — that's FIS).
+- Anything that requires MITM/TLS interception.
