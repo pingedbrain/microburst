@@ -1,0 +1,30 @@
+{
+  "body": "{\"EventBuses\":[{\"Arn\":\"arn:aws:svc::000000000000:x\",\"Name\":\"x\"}]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query-compat",
+  "headers": {
+    "Content-Length": "99",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Fri, 09 Oct 2026 18:48:55 GMT",
+    "x-amzn-RequestId": "379a03a8-df18-4142-a9ab-7586d00cab0d"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "events",
+  "operation": "list_event_buses",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:55Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "379a03a8-df18-4142-a9ab-7586d00cab0d"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "events",
+  "status": 200,
+  "ts": 1791571735.21713,
+  "url": "https://events.us-east-1.amazonaws.com/"
+}

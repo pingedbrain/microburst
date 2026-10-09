@@ -1,6 +1,8 @@
 # Live-AWS fidelity report
 
-Captured 2026-10-09 15:39 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+Captured 2026-10-09 18:49 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+
+*25 success-path capture(s) skipped — microburst forwards successful upstream responses rather than rendering them; `fidelity conform`/`fidelity diff` compare their envelopes (status + Content-Type + body shape).*
 
 | service | operation | error code | AWS status | ours | AWS CT | ours | verdict |
 |---|---|---|---|---|---|---|---|

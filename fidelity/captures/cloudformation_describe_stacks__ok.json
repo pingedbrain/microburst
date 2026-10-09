@@ -1,0 +1,33 @@
+{
+  "body": "<DescribeStacksResponse xmlns=\"http://cloudformation.amazonaws.com/doc/2010-05-15/\">\n  <DescribeStacksResult>\n    <Stacks/>\n  </DescribeStacksResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</DescribeStacksResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Cache-Control": "no-store, no-cache",
+    "Content-Length": "283",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:49 GMT",
+    "Strict-Transport-Security": "max-age=47304000; includeSubDomains",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "cf6da404-6df5-49de-9e00-9ffc548e7add"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "cloudformation",
+  "operation": "describe_stacks",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:49Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "cf6da404-6df5-49de-9e00-9ffc548e7add"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "cloudformation",
+  "status": 200,
+  "ts": 1791571729.1905873,
+  "url": "https://cloudformation.us-east-1.amazonaws.com/"
+}

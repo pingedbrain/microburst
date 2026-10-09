@@ -1,0 +1,30 @@
+{
+  "body": "<?xml version=\"1.0\"?>\n<ListHostedZonesResponse xmlns=\"https://route53.amazonaws.com/doc/2013-04-01/\"><HostedZones/><IsTruncated>x</IsTruncated><MaxItems>x</MaxItems></ListHostedZonesResponse>",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "rest-xml",
+  "headers": {
+    "Content-Length": "197",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:51 GMT",
+    "x-amzn-RequestId": "f8b78b30-c979-4edf-9bed-44ad70fff525"
+  },
+  "kind": "success",
+  "method": "GET",
+  "model_service": "route53",
+  "operation": "list_hosted_zones",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:51Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "f8b78b30-c979-4edf-9bed-44ad70fff525"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "route53",
+  "status": 200,
+  "ts": 1791571731.9354794,
+  "url": "https://route53.amazonaws.com/2013-04-01/hostedzone"
+}

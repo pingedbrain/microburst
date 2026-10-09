@@ -1,0 +1,31 @@
+{
+  "body": "{\"EmailIdentities\":[],\"NextToken\":null}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "rest-json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "39",
+    "Content-Type": "application/json",
+    "Date": "Fri, 09 Oct 2026 18:48:53 GMT",
+    "x-amzn-RequestId": "aad3f430-91db-41e9-83fa-a02e13e09b03"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "sesv2",
+  "operation": "list_email_identities",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "aad3f430-91db-41e9-83fa-a02e13e09b03"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "sesv2",
+  "status": 200,
+  "ts": 1791571734.0277042,
+  "url": "https://email.us-east-1.amazonaws.com/v2/email/list-identities"
+}

@@ -1,0 +1,31 @@
+{
+  "body": "<DescribeDBInstancesResponse xmlns=\"http://rds.amazonaws.com/doc/2014-10-31/\">\n  <DescribeDBInstancesResult>\n    <DBInstances/>\n  </DescribeDBInstancesResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</DescribeDBInstancesResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Content-Length": "297",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:48 GMT",
+    "Strict-Transport-Security": "max-age=31536000",
+    "x-amzn-RequestId": "a6fc5a2b-b626-459a-a0db-51f593b68b44"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "rds",
+  "operation": "describe_db_instances",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:48Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "a6fc5a2b-b626-459a-a0db-51f593b68b44"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "rds",
+  "status": 200,
+  "ts": 1791571728.3918455,
+  "url": "https://rds.us-east-1.amazonaws.com/"
+}

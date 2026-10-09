@@ -1,0 +1,30 @@
+{
+  "body": "{\"logGroups\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Content-Length": "16",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Fri, 09 Oct 2026 18:48:41 GMT",
+    "x-amzn-RequestId": "a76d32f7-bd40-4cf0-aef5-ac2b5e26d59a"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "logs",
+  "operation": "describe_log_groups",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:41Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "a76d32f7-bd40-4cf0-aef5-ac2b5e26d59a"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "logs",
+  "status": 200,
+  "ts": 1791571721.4151955,
+  "url": "https://logs.us-east-1.amazonaws.com/"
+}

@@ -1,0 +1,33 @@
+{
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DescribeInstancesResponse xmlns=\"http://ec2.amazonaws.com/doc/2016-11-15/\"><requestId>x</requestId><reservationSet/></DescribeInstancesResponse>",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "ec2",
+  "headers": {
+    "Cache-Control": "no-cache, no-store",
+    "Content-Length": "219",
+    "Content-Type": "text/xml;charset=UTF-8",
+    "Date": "Fri, 09 Oct 2026 18:48:49 GMT",
+    "Server": "AmazonEC2",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "x-amzn-RequestId": "74fc3ab2-b62b-42e2-9411-74a7ccfe71a6"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "ec2",
+  "operation": "describe_instances",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:49Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "74fc3ab2-b62b-42e2-9411-74a7ccfe71a6"
+    },
+    "server": "AmazonEC2"
+  },
+  "sdk_error_code": null,
+  "service": "ec2",
+  "status": 200,
+  "ts": 1791571729.9089637,
+  "url": "https://ec2.us-east-1.amazonaws.com/"
+}

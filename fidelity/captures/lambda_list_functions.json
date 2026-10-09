@@ -1,0 +1,31 @@
+{
+  "body": "{\"Functions\":[],\"NextMarker\":null}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "rest-json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "34",
+    "Content-Type": "application/json",
+    "Date": "Fri, 09 Oct 2026 18:48:52 GMT",
+    "x-amzn-RequestId": "088962a8-eb59-4996-935e-12092aec97a9"
+  },
+  "kind": "success",
+  "method": "GET",
+  "model_service": "lambda",
+  "operation": "list_functions",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:52Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "088962a8-eb59-4996-935e-12092aec97a9"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "lambda",
+  "status": 200,
+  "ts": 1791571732.4690335,
+  "url": "https://lambda.us-east-1.amazonaws.com/2015-03-31/functions"
+}

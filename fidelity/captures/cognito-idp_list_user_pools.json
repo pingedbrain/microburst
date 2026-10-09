@@ -1,0 +1,31 @@
+{
+  "body": "{\"UserPools\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "16",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Fri, 09 Oct 2026 18:48:43 GMT",
+    "x-amzn-RequestId": "db06e2c3-11d8-4d73-a1c6-57bf8966d27a"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "cognito-idp",
+  "operation": "list_user_pools",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:43Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "db06e2c3-11d8-4d73-a1c6-57bf8966d27a"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "cognito-idp",
+  "status": 200,
+  "ts": 1791571723.2093503,
+  "url": "https://cognito-idp.us-east-1.amazonaws.com/"
+}

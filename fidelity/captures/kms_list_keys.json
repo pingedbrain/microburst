@@ -1,0 +1,34 @@
+{
+  "body": "{\"KeyCount\":0,\"Keys\":[],\"Truncated\":0}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Cache-Control": "no-cache, no-store, must-revalidate, private",
+    "Content-Length": "42",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Fri, 09 Oct 2026 18:48:40 GMT",
+    "Expires": "0",
+    "Pragma": "no-cache",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "78277e4d-3cb3-43b3-8928-44edeef4d97d"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "kms",
+  "operation": "list_keys",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:40Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "78277e4d-3cb3-43b3-8928-44edeef4d97d"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "kms",
+  "status": 200,
+  "ts": 1791571720.3664927,
+  "url": "https://kms.us-east-1.amazonaws.com/"
+}

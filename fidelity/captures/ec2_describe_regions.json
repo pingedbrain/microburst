@@ -1,0 +1,34 @@
+{
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DescribeRegionsResponse xmlns=\"http://ec2.amazonaws.com/doc/2016-11-15/\"><requestId>x</requestId><regionInfo><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item><item><regionName>x</regionName><regionEndpoint>x</regionEndpoint><optInStatus>x</optInStatus><geographySet><item><name>x</name></item></geographySet></item></regionInfo></DescribeRegionsResponse>",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "ec2",
+  "headers": {
+    "Cache-Control": "no-cache, no-store",
+    "Content-Length": "4017",
+    "Content-Type": "text/xml;charset=UTF-8",
+    "Date": "Fri, 09 Oct 2026 18:48:50 GMT",
+    "Server": "AmazonEC2",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "vary": "accept-encoding",
+    "x-amzn-RequestId": "83fdb0cb-7c53-41a1-94a7-57a30745b624"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "ec2",
+  "operation": "describe_regions",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:50Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "83fdb0cb-7c53-41a1-94a7-57a30745b624"
+    },
+    "server": "AmazonEC2"
+  },
+  "sdk_error_code": null,
+  "service": "ec2",
+  "status": 200,
+  "ts": 1791571730.868027,
+  "url": "https://ec2.us-east-1.amazonaws.com/"
+}

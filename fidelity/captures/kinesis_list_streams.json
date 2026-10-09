@@ -1,0 +1,33 @@
+{
+  "body": "{\"HasMoreStreams\":0,\"StreamNames\":[],\"StreamSummaries\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Content-Length": "62",
+    "Content-Type": "application/x-amz-json-1.1",
+    "Date": "Fri, 09 Oct 2026 18:48:42 GMT",
+    "connection": "keep-alive",
+    "x-amz-id-2": "5W1wddozKv5UoBLFuiVNu84aqfuqybCX/eQtn7TqwqE9a2WWC3ESz+DajrQPAl4GyMV2CmWlczYi9/EJxvKrfNBAIWLcbmsX",
+    "x-amzn-RequestId": "eea02510-fb61-f694-8de3-1c5add2e8177"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "kinesis",
+  "operation": "list_streams",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:42Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amz-id-2": "5W1wddozKv5UoBLFuiVNu84aqfuqybCX/eQtn7TqwqE9a2WWC3ESz+DajrQPAl4GyMV2CmWlczYi9/EJxvKrfNBAIWLcbmsX",
+      "x-amzn-requestid": "eea02510-fb61-f694-8de3-1c5add2e8177"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "kinesis",
+  "status": 200,
+  "ts": 1791571722.2042122,
+  "url": "https://kinesis.us-east-1.amazonaws.com/"
+}

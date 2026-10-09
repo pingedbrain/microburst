@@ -1,0 +1,30 @@
+{
+  "body": "{\"DashboardEntries\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query-compat",
+  "headers": {
+    "Content-Length": "23",
+    "Content-Type": "application/x-amz-json-1.0",
+    "Date": "Fri, 09 Oct 2026 18:48:54 GMT",
+    "x-amzn-RequestId": "e84a451a-2dbd-45b5-bacf-f42cef1cff7b"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "cloudwatch",
+  "operation": "list_dashboards",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:54Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "e84a451a-2dbd-45b5-bacf-f42cef1cff7b"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "cloudwatch",
+  "status": 200,
+  "ts": 1791571734.611551,
+  "url": "https://monitoring.us-east-1.amazonaws.com/"
+}
