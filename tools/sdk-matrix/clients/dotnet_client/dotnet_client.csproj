@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0: AWSSDK v4 baseline TFM; builds on SDK 8/9/10. RollForward
+         lets the binary run on a newer runtime when only e.g. .NET 10 is
+         installed (dev tool — no production pinning concerns). -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>LatestMajor</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>dotnet_client</AssemblyName>
+    <!-- keep stdout clean: run.py parses JSON lines -->
+    <WarningLevel>0</WarningLevel>
+  </PropertyGroup>
+
+  <!-- Versions pinned to releases >= 7 days old at time of pinning
+       (published dates verified via the NuGet registration API). -->
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.107" />
+    <PackageReference Include="AWSSDK.Lambda" Version="4.0.108.2" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.100.15" />
+    <PackageReference Include="AWSSDK.S3" Version="4.0.104.1" />
+  </ItemGroup>
+
+</Project>

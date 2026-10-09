@@ -1,0 +1,19 @@
+[package]
+name = "rust-client"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# SDK versions pinned ~4 releases back from latest — aws-sdk-rust releases
+# near-daily; these correspond to the ~2026-10-01/02 release (>= 7 days old
+# at time of pinning). Cargo.lock is committed for full reproducibility.
+[dependencies]
+aws-sdk-dynamodb = "=1.126.0"
+aws-sdk-lambda = "=1.146.0"
+aws-sdk-sqs = "=1.109.0"
+aws-sdk-s3 = "=1.148.0"
+# interceptor API for per-attempt counting (mirrors go-v2's finalize MW)
+aws-smithy-runtime-api = { version = "=1.18.0", features = ["client"] }
+aws-smithy-types = "=1.8.1"
+tokio = { version = "~1", features = ["macros", "rt"] }
+serde_json = "~1"

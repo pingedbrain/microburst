@@ -9,7 +9,7 @@ available SDK client against it. For every scenario we record:
 - how many attempts the SDK made — client-side count plus the proxy's
   own fired log as an independent server-side count
 
-Usage:  python tools/sdk-matrix/run.py [--sdk boto3,js-v3,go-v2] [--port N]
+Usage:  python tools/sdk-matrix/run.py [--sdk boto3,js-v3,go-v2,...] [--port N]
 """
 
 from __future__ import annotations
@@ -66,6 +66,9 @@ SCENARIOS = {
             "boto3": {"code": "503"},
             "go-v2": {"code": "ServiceUnavailable"},
             "js-v3": {"code": "Unknown"},
+            "dotnet": {"code": "ServiceUnavailable"},
+            # rust emits null (meta().code() absent) — same as java-v2,
+            # and a null expectation isn't expressible, so no entry
         },
     },
 }
@@ -104,6 +107,7 @@ def _fired(base: str) -> list[dict]:
 
 def _sdk_clients(
     node: str | None, go: str | None, mvn: str | None,
+    cargo: str | None, dotnet: str | None,
 ) -> dict[str, dict]:
     clients = {
         "boto3": {
@@ -127,13 +131,29 @@ def _sdk_clients(
             "cmd": [mvn, "-B", "-f", "java", "compile", "exec:java"],
             "cwd": HERE / "clients",
         }
+    if cargo:
+        clients["rust"] = {
+            # build progress goes to stderr; stdout stays clean JSON
+            "cmd": [cargo, "run", "--quiet", "--release"],
+            "cwd": HERE / "clients" / "rust_client",
+            # cold build of 4 AWS SDK crates can take several minutes
+            "timeout": 900,
+        }
+    if dotnet:
+        clients["dotnet"] = {
+            # build noise goes to stdout but is filtered (only lines
+            # starting with "{" are parsed)
+            "cmd": [dotnet, "run", "--project", ".", "-c", "Release"],
+            "cwd": HERE / "clients" / "dotnet_client",
+            "timeout": 600,
+        }
     return clients
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=9911)
-    ap.add_argument("--sdk", default="boto3,js-v3,go-v2,java-v2")
+    ap.add_argument("--sdk", default="boto3,js-v3,go-v2,java-v2,rust,dotnet")
     ap.add_argument("--out", default=str(HERE / "results.json"))
     args = ap.parse_args()
 
@@ -145,12 +165,20 @@ def main() -> int:
         (str(p) for p in sorted(Path.home().glob(".gvm/gos/*/bin/go"))
          if p.exists()), None)
     mvn = shutil.which("mvn")
-    clients = _sdk_clients(node, go, mvn)
+    cargo = shutil.which("cargo") or next(
+        (str(p) for p in [Path.home() / ".cargo/bin/cargo"]
+         if p.exists()), None)
+    dotnet = shutil.which("dotnet") or next(
+        (str(p) for p in [Path.home() / ".dotnet/dotnet"]
+         if p.exists()), None)
+    clients = _sdk_clients(node, go, mvn, cargo, dotnet)
     want = {s.strip() for s in args.sdk.split(",")}
     missing = want - set(clients)
     if missing:
         print(f"warning: no client for {sorted(missing)} "
-              f"(node={'yes' if node else 'no'}, go={'yes' if go else 'no'})")
+              f"(node={'yes' if node else 'no'}, go={'yes' if go else 'no'}, "
+              f"cargo={'yes' if cargo else 'no'}, "
+              f"dotnet={'yes' if dotnet else 'no'})")
 
     mb = subprocess.Popen(
         [sys.executable, "-m", "microburst",
@@ -181,7 +209,8 @@ def main() -> int:
             env = {**os.environ, "MB_ENDPOINT": base}
             proc = subprocess.run(
                 spec["cmd"], cwd=spec["cwd"], capture_output=True,
-                text=True, timeout=300, env=env, check=False,
+                text=True, timeout=spec.get("timeout", 300), env=env,
+                check=False,
             )
             rows = []
             for line in proc.stdout.splitlines():
