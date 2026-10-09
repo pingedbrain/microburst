@@ -53,9 +53,15 @@ query-marker + required-header disambiguation.
   `smithy-protocol`/`x-amzn-requestid` headers.
 - ~~Query-compat error header~~ ✅ — `x-amzn-query-error: Code;Sender` sent
   when the request carries `x-amzn-query-mode` (matches real AWS behavior).
-- `aws-json-1.1` variant detection + envelope differences. `[good-first-issue]`
-- `__type` namespacing: emit `prefix#Code` vs bare `Code` where the service
-  expects it. `[size:S]`
+- ~~`aws-json-1.x` variant detection~~ ✅ — the request's observed
+  `x-amz-json-1.x` Content-Type wins over the model's `jsonVersion`
+  (`render_error(request_ct=...)`), same rule as `ctx.protocol`.
+- ~~`__type` namespacing~~ ✅ — per-service `prefix#Code` vs bare `Code`
+  verified against live captures (`com.amazonaws.dynamodb.v20120810#`,
+  `com.amazonaws.sqs#`, `com.amazonaws.cloudwatch.v2010_08_01#`); front-layer
+  auth codes (`ExpiredTokenException`, `UnrecognizedClientException`, …)
+  get `com.amazon.coral.service#` — observed on the sfn capture. The map
+  grows as captures cover more services.
 - Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
   DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
 
@@ -93,8 +99,8 @@ query-marker + required-header disambiguation.
 
 - ~~Live fired-event stream~~ ✅ — `GET /_microburst/fired/stream` SSE,
   bounded per-consumer queues, keepalives.
-- ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` on GET /fired
-  (time-range still open).
+- ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` and time-range
+  `?since=&until=` (epoch seconds or ISO-8601) on GET /fired.
 - ~~`/metrics` Prometheus endpoint~~ ✅ — requests/faults by (service,
   operation, action) + rules gauge. Counters survive fired-log deque
   eviction.
@@ -178,7 +184,17 @@ query-marker + required-header disambiguation.
   upstream-free while rules still inject faults.
 - ~~`microburst fidelity` subcommand~~ ✅ — the live-AWS diff harness
   ships in the wheel (`capture`/`report`, `--dir`); `tools/live_fidelity.py`
-  is a thin repo wrapper.
+  is a thin repo wrapper. Extended since: `capture --endpoint-url` +
+  `conform` diff any AWS-compatible endpoint against the committed goldens
+  (found 21/28 divergences on first run against a real emulator);
+  `snapshot` + a weekly zero-credentials workflow watch botocore for model
+  drift; captures carry AWS request-id provenance; `fidelity/protocol/`
+  vendors AWS-authored protocol fixtures parsed back through botocore's
+  own models.
+- ~~Runnable examples~~ ✅ — `examples/` ships seven self-contained
+  failure scenarios (throttled writes, timeout cascade, poison queue,
+  S3 SlowDown, stream cuts, expired token, generic HTTP) with configs
+  kept parseable by a test.
 
 ## Explicitly out of scope (for now)
 

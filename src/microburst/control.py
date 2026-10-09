@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 
 from aiohttp import web
 
@@ -72,6 +73,20 @@ async def handle_control(microburst, request: web.Request):
             if "rule_id" in q:
                 rid = int(q["rule_id"])
                 events = [e for e in events if e.rule_id == rid]
+            if "since" in q or "until" in q:
+                try:
+                    since = _parse_ts(q["since"]) if "since" in q else None
+                    until = _parse_ts(q["until"]) if "until" in q else None
+                except ValueError:
+                    return web.json_response(
+                        {"error": "since/until must be epoch seconds "
+                                  "or ISO-8601"},
+                        status=400,
+                    )
+                if since is not None:
+                    events = [e for e in events if e.ts >= since]
+                if until is not None:
+                    events = [e for e in events if e.ts <= until]
             return web.json_response([e.to_dict() for e in events])
         if method == "DELETE":
             microburst.fired.clear()
@@ -96,6 +111,17 @@ async def handle_control(microburst, request: web.Request):
         return web.json_response([to_dict(r) for r in rules])
 
     return web.json_response({"error": "unknown control path"}, status=404)
+
+
+def _parse_ts(raw: str) -> float:
+    """Epoch seconds or ISO-8601 (a trailing ``Z`` is accepted). Naive
+    ISO values resolve in the host's local timezone."""
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    iso = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    return datetime.fromisoformat(iso).timestamp()
 
 
 def _metrics(microburst) -> web.Response:

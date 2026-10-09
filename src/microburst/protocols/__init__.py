@@ -12,6 +12,7 @@ package imports every serializer module, so the registry is always full.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
 
@@ -26,6 +27,8 @@ __all__ = ["get_serializer", "register_serializer", "render_error"]
 
 # render(code, message, request_id, service) -> (headers, body)
 _SERIALIZERS: dict[str, Callable] = {}
+
+_JSON_VERSION_RE = re.compile(r"x-amz-json-1\.(\d)")
 
 
 def register_serializer(*protocol_names: str) -> Callable:
@@ -64,6 +67,7 @@ def render_error(
     status: int | None = None,
     protocol: str | None = None,
     query_compat: bool = False,
+    request_ct: str | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     """Serialize an AWS-looking error. Returns (status, headers, body).
 
@@ -72,6 +76,8 @@ def render_error(
     accept query-compatible JSON even though the model says rpc-v2-cbor).
     ``query_compat`` adds the ``x-amzn-query-error`` header AWS sends to
     query-compatible clients, which drives the SDK's parsed error code.
+    ``request_ct`` is the request's own Content-Type — for json services the
+    observed ``x-amz-json-1.x`` version wins over the model's ``jsonVersion``.
     """
     protocol = protocol or (get_protocol(service) if service else None)
 
@@ -102,6 +108,10 @@ def render_error(
 
     renderer = get_serializer(protocol) or _DEFAULT_RENDERER
     headers, body = renderer(bare_code, message, _request_id(), service)
+    if protocol == "json" and request_ct:
+        m = _JSON_VERSION_RE.search(request_ct)
+        if m:
+            headers["Content-Type"] = f"application/x-amz-json-1.{m.group(1)}"
     if query_compat or (
         protocol == "json" and is_query_compat_service(service)
     ):

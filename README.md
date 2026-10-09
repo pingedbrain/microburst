@@ -215,7 +215,7 @@ surface.
 |---|---|---|
 | GET | `/_microburst/health` | upstream, rule count, requests seen |
 | GET · POST · PATCH · DELETE | `/_microburst/rules` | list / replace / append / clear rules |
-| GET · DELETE | `/_microburst/fired` | fault audit log / clear it — GET filters: `?service=&operation=&rule_id=&limit=` |
+| GET · DELETE | `/_microburst/fired` | fault audit log / clear it — GET filters: `?service=&operation=&rule_id=&limit=&since=&until=` (epoch or ISO-8601) |
 | GET | `/_microburst/fired/stream` | live SSE tail — every fault as it fires |
 | GET | `/_microburst/metrics` | Prometheus exposition: `microburst_requests_total`, `microburst_faults_total{service,operation,action}`, `microburst_rules_active` |
 | GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |

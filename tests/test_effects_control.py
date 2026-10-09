@@ -225,6 +225,36 @@ def test_fired_log_clear(upstub, microburst_server, aws_env):
     assert _control(proxy.url, "GET", "/_microburst/fired") == []
 
 
+def test_fired_time_range_filter(upstub, microburst_server, aws_env):
+    """?since=/until= bound the audit log by event timestamp — epoch or
+    ISO-8601, both inclusive."""
+    _, proxy = microburst_server(
+        upstub[1].url,
+        rules=[{"service": "dynamodb", "times": 1,
+                "error": {"code": "InternalError"}}],
+    )
+    _put_item(_ddb(proxy.url))
+    ts = _control(proxy.url, "GET", "/_microburst/fired")[0]["ts"]
+
+    def get(p):
+        return _control(proxy.url, "GET", p)
+    assert len(get(f"/_microburst/fired?since={ts}")) == 1
+    assert len(get(f"/_microburst/fired?until={ts}")) == 1
+    assert get(f"/_microburst/fired?since={ts + 1}") == []
+    assert get(f"/_microburst/fired?until={ts - 1}") == []
+    assert len(get(f"/_microburst/fired?since={ts - 1}&until={ts + 1}")) == 1
+
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts + 1))
+    assert get(f"/_microburst/fired?since={iso}") == []
+
+
+def test_fired_time_range_rejects_garbage(upstub, microburst_server, aws_env):
+    _, proxy = microburst_server(upstub[1].url)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _control(proxy.url, "GET", "/_microburst/fired?since=soon")
+    assert caught.value.status == 400
+
+
 def test_control_rejects_bad_body(upstub, microburst_server, aws_env):
     _, proxy = microburst_server(upstub[1].url)
     req = urllib.request.Request(

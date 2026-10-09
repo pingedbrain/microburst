@@ -21,6 +21,48 @@ def test_json_protocol_dynamodb():
     assert payload["message"] == "Rate exceeded"
 
 
+def test_json_coral_layer_codes_get_coral_prefix():
+    """Front-layer auth codes are raised before the request reaches the
+    service — AWS namespaces them ``com.amazon.coral.service#`` even on a
+    service that prefixes modeled errors. Real AWS observation: the sfn
+    fidelity capture returns ``com.amazon.coral.service#AccessDeniedException``."""
+    _s, _h, body = render_error(
+        "dynamodb", "ExpiredTokenException", "token expired", 400
+    )
+    assert json.loads(body)["__type"] == (
+        "com.amazon.coral.service#ExpiredTokenException"
+    )
+    # A bare-namespace service gets the same treatment.
+    _s, _h, body = render_error(
+        "kinesis", "UnrecognizedClientException", "bad creds", 400
+    )
+    assert json.loads(body)["__type"] == (
+        "com.amazon.coral.service#UnrecognizedClientException"
+    )
+    # Modeled codes keep the service namespace.
+    _s, _h, body = render_error(
+        "dynamodb", "ResourceNotFoundException", "nope", 400
+    )
+    assert json.loads(body)["__type"] == (
+        "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException"
+    )
+
+
+def test_json_observed_ct_wins_over_model_version():
+    """A client pinned to x-amz-json-1.0 gets the 1.0 CT back even when the
+    model declares 1.1 — the observed wire wins, like ctx.protocol."""
+    _s, headers, _b = render_error(
+        "kinesis", "ResourceNotFoundException", "nope", 400,
+        request_ct="application/x-amz-json-1.0",
+    )
+    assert headers["Content-Type"] == "application/x-amz-json-1.0"
+    # Nothing observed → model metadata (kinesis is jsonVersion 1.1).
+    _s, headers, _b = render_error(
+        "kinesis", "ResourceNotFoundException", "nope", 400
+    )
+    assert headers["Content-Type"] == "application/x-amz-json-1.1"
+
+
 def test_query_protocol_xml():
     _status, headers, body = render_error(
         "sns", "Throttling", "Rate exceeded", 400,

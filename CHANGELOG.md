@@ -4,6 +4,28 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Fired-log time range** — `GET /_microburst/fired` accepts `?since=` /
+  `?until=` (epoch seconds or ISO-8601) alongside the field filters.
+
+### Fixed
+
+- **Coral front-layer `__type` prefix** — auth-layer codes
+  (`ExpiredTokenException`, `UnrecognizedClientException`,
+  `InvalidClientTokenId`, `AccessDeniedException`,
+  `MissingAuthenticationTokenException`, `InvalidSignatureException`) now
+  render `com.amazon.coral.service#Code` on json services, matching the
+  real-AWS capture, instead of the service namespace.
+- **Observed `x-amz-json-1.x` version wins** — a request whose Content-Type
+  pins a json protocol version gets that version echoed back, not the
+  model's `jsonVersion` (same rule as observed `ctx.protocol`).
+- **Timeout envelope matches the wire protocol** — `timeout_ms` responses
+  now honor the observed protocol, query-compat flag, and request
+  Content-Type instead of always emitting the default json envelope.
+
 ## [0.7.0] - 2026-10-08
 
 ### Added
