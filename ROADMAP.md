@@ -221,8 +221,10 @@ query-marker + required-header disambiguation.
   capture sets (same fields as conform, neutral labels, writes `DIFF.md`
   into B). Verified: us-west-2 vs ap-southeast-2 AWS captures are
   shape-identical 28/28.
-- **SDK matrix expansion** — aws-sdk-rust and .NET cells; the matrix
-  already caught a real detection bug once. `[size:M]`
+- ~~SDK matrix expansion~~ ✅ — aws-sdk-rust (smithy `Intercept` attempt
+  counting, `=` pins) and AWSSDK-v4 .NET (`DelegatingHandler` attempt
+  counting) cells; 20/20 pass with zero serializer changes. SDK-specific
+  HEAD-error parse documented (rust → `null`, .NET → `ServiceUnavailable`).
 
 ## Ecosystem
 
