@@ -1,0 +1,92 @@
+name: emulator-conformance
+
+# Weekly informational measurement — runs the standard fidelity probe set
+# against a LocalStack service container and diffs the wire responses
+# against the committed real-AWS goldens in fidelity/captures/. This is a
+# measurement, not a merge gate: divergences land in CONFORM.md (artifact +
+# step summary) while the job stays green — conform runs with
+# continue-on-error.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  localstack:
+    runs-on: ubuntu-latest
+    services:
+      # Pinned to 4.14.0 — the last token-free release. Since the
+      # March 2026 single-image change, `localstack/localstack:latest`
+      # requires LOCALSTACK_AUTH_TOKEN (a LocalStack account credential)
+      # and exits without it. To track `latest`, add a CI auth token as
+      # the LOCALSTACK_AUTH_TOKEN secret and pass it in the service env.
+      # Modern LocalStack lazy-loads services — no SERVICES= env needed.
+      # Probes that hit Pro-only services land as divergent/missing rows
+      # in CONFORM.md — expected, visible in the artifact.
+      localstack:
+        image: localstack/localstack:4.14.0
+        ports:
+          - 4566:4566
+    env:
+      # Emulators don't validate credentials, but boto3 still needs them
+      # present to sign requests the way it would against real AWS.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      # Route the capture harness's internal STS GetCallerIdentity probe
+      # (account-id redaction source) at LocalStack too instead of AWS.
+      AWS_ENDPOINT_URL: http://localhost:4566
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -e ".[test]"
+      - name: Wait for LocalStack
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4566/_localstack/health > /dev/null; then
+              echo "LocalStack healthy after ${i} check(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack did not become healthy"
+          exit 1
+      - name: Capture emulator wire responses
+        run: >-
+          .venv/bin/python -m microburst fidelity capture
+          --endpoint-url http://localhost:4566 --dir localstack/
+      - name: Conform against real-AWS goldens
+        # Divergences are the measurement, not a failure — keep the job
+        # green and let CONFORM.md carry the score.
+        continue-on-error: true
+        run: >-
+          .venv/bin/python -m microburst fidelity conform
+          --aws fidelity --emu localstack/
+      - name: Publish score to step summary
+        if: always()
+        run: |
+          {
+            echo "## LocalStack conformance vs real-AWS goldens"
+            echo ""
+            if [ -f localstack/CONFORM.md ]; then
+              cat localstack/CONFORM.md
+            else
+              echo "CONFORM.md was not produced — see the capture step logs."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload captures + CONFORM.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: localstack-conformance
+          path: localstack/
+          retention-days: 30

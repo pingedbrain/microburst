@@ -248,9 +248,12 @@ query-marker + required-header disambiguation.
   derived from `fidelity/captures/` with a `>= 28` floor so deletions
   fail loudly. pytest coverage makes it automatic — `ci.yml` already
   runs the suite.
-- **Conformance CI vs other emulators** — run `conform` against
-  LocalStack/other AWS-compatible endpoints in CI and publish the
-  compat table; the harness already exists. `[size:M]`
+- ~~**Conformance CI vs other emulators**~~ ✅ — weekly
+  `emulator-conformance` workflow captures the probe set against a
+  LocalStack service container, `conform`s it against the committed AWS
+  goldens, and publishes `CONFORM.md` + captures as a run artifact and
+  step summary. Informational, not a merge gate; extending to more
+  emulators is a matrix addition.
 
 ## Ecosystem
 

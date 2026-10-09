@@ -330,6 +330,12 @@ protocol-compliance fixtures (from botocore's conformance suite), so the
 envelopes are also checked against AWS-authored wire expectations on
 every test run.
 
+A second weekly workflow, `emulator-conformance`, re-runs the same probe
+set against a LocalStack service container and `conform`s it against the
+committed goldens — an informational measurement, never a merge gate. The
+score table lands in the run's step summary; `CONFORM.md` plus the raw
+captures upload as the `localstack-conformance` run artifact.
+
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
 28/28 probes matching AWS on status, parsed `Error.Code`, Content-Type,
 **and envelope shape** (XML element paths, `__type` namespacing) —
