@@ -29,6 +29,9 @@ extension seams:
 - `src/microburst/rules.py` — rule matching engine + presets.
 - `src/microburst/forward.py` — upstream relay + SigV4 re-signing
   (data plane only, no decisions).
+- `src/microburst/framing.py` — defensive message-boundary parsing for
+  framed upload bodies (eventstream preludes, gRPC length prefixes),
+  used by `request:` faults.
 - `src/microburst/control.py` — `/_microburst/*` control plane.
 - `src/microburst/models.py` — botocore service-model access.
 - `src/microburst/app.py` / `cli.py` — app wiring + entry point.

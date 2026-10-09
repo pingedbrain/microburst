@@ -117,9 +117,12 @@ query-marker + required-header disambiguation.
   a measured per-service baseline (real AWS us-east-1 probing, 2026-02:
   service-side residual = p50 − ~155ms network floor, gaussian with
   inferred stddev). `tools/latency_probe.py` refreshes the data.
-- **gRPC / event-stream request faults** — request faults today cover
-  flat bodies; bidirectional streams (S3 Select client→server, gRPC
-  streams) have no upload-fault path. `[size:M]`
+- ~~gRPC / event-stream request faults~~ ✅ — `cut_upload.after_messages`
+  resets the client connection after N complete frames and
+  `corrupt_upload.at_message` poisons message N's checksum/length for
+  the upstream's parser. Covers `application/vnd.amazon.eventstream`
+  and `application/grpc*` bodies; non-framed types no-op with a
+  fired-event note, malformed framing falls back to byte thresholds.
 
 ## Rules (`rules.py`)
 

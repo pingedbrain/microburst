@@ -1,0 +1,22 @@
+# Cut the client→proxy link after the 4th complete eventstream message —
+# the SDK sees a connection error *between* frames on its write path and
+# retries; the retry lands on the pass slot. Nothing is forwarded
+# upstream for the cut attempts.
+rules:
+  - service: s3
+    operation: PutObject
+    sequence: {fail: 1, pass: 1}   # cut, upload, cut, upload, ...
+    request:
+      cut_upload: {after_messages: 4}
+
+  # Variant: deliver a poisoned frame to the upstream instead of cutting.
+  # The proxy forwards 2 good messages, flips a byte in message 3's
+  # trailing CRC (eventstream) or rewrites the length prefix to a
+  # nonsense size (gRPC) — the emulator's frame parser rejects it and
+  # its error flows back to the still-connected client:
+  #
+  # - service: s3
+  #   operation: PutObject
+  #   resource: corrupt-me
+  #   request:
+  #     corrupt_upload: {at_message: 3}

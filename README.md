@@ -216,7 +216,15 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
     cut_upload: {after_bytes: 1024}  # after N bytes of the upload are
                                    # consumed, reset the client connection —
                                    # ECONNRESET mid-PUT, nothing forwarded
-                                   # (or after_frac: 0.5)
+                                   # (or after_frac: 0.5, or
+                                   #  after_messages: N — framed bodies only:
+                                   #  count messages and reset on a frame
+                                   #  boundary, eventstream / grpc*)
+    corrupt_upload: {at_message: 3}  # framed bodies: forward N-1 messages
+                                   # verbatim, poison message N's
+                                   # checksum/length so the UPSTREAM's
+                                   # parser rejects it — the client stays
+                                   # connected for the upstream's error
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
@@ -250,6 +258,16 @@ upstream send — and `cut_upload` lands on the client's read path (same
 observable as `reset: true`). Streaming uploads (S3 `PutObject`,
 `UploadPart`, payloads >4 MiB) get the real thing: write-path
 backpressure and a true mid-upload reset.
+
+`after_messages` / `corrupt_upload` need a framed Content-Type:
+`application/vnd.amazon.eventstream` (prelude-parsed frames) or
+`application/grpc*` (5-byte length prefix). On any other type they're
+no-ops — the request forwards and the fired event's `note` field says
+so (`content-type not a framed stream`). Frame parsing is defensive:
+a malformed prelude/prefix stops message counting, falls back to the
+byte thresholds (which still apply if configured), and forwards
+verbatim on `corrupt_upload`; every degraded outcome lands in `note`
+with `frames_seen` detail.
 
 ### Presets
 

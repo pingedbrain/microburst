@@ -8,6 +8,19 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **Message-boundary request faults** — `request:` learns two framed-body
+  options. `cut_upload.after_messages: N` parses framed uploads
+  (`application/vnd.amazon.eventstream` preludes, `application/grpc*`
+  length prefixes) and resets the client connection after the Nth
+  complete message — the SDK sees the link die *between* frames.
+  `corrupt_upload.at_message: N` forwards N-1 messages verbatim, then
+  poisons message N (flipped eventstream message-CRC byte;
+  nonsense-huge gRPC length prefix) on the upstream send path — the
+  upstream's parser rejects it and its error reaches the still-connected
+  client. Non-framed Content-Types are a no-op; malformed framing stops
+  message counting and falls back to byte thresholds. Outcomes surface
+  on the fired event's new `note` field (frame counts, fallback
+  reasons). New example: `examples/09-eventstream-cut`.
 - **`GET /_microburst/stats`** — aggregates that `/metrics` can't express:
   uptime, request totals (`total` / `faulted` / `forwarded` — a
   latency-then-forward fault lands in both buckets), upstream latency

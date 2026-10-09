@@ -614,6 +614,10 @@ class FiredEvent:
     region: str | None
     action: str
     path: str
+    # Runtime detail learned while the fault executed (frame counts,
+    # no-op explanations) — filled in after the event is logged, so SSE
+    # subscribers may see an earlier snapshot without it.
+    note: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -625,6 +629,7 @@ class FiredEvent:
             "region": self.region,
             "action": self.action,
             "path": self.path,
+            "note": self.note,
         }
 
 
@@ -636,6 +641,7 @@ def _request_fault(spec: dict | None) -> RequestFault | None:
 
     slow = spec.get("slow_upload")
     cut = spec.get("cut_upload")
+    corrupt = spec.get("corrupt_upload")
     return RequestFault(
         rate_kbps=(
             _float_or_none(slow.get("rate_kbps"))
@@ -650,6 +656,16 @@ def _request_fault(spec: dict | None) -> RequestFault | None:
         after_frac=(
             _float_or_none(cut.get("after_frac"))
             if isinstance(cut, dict)
+            else None
+        ),
+        after_messages=(
+            _int_or_none(cut.get("after_messages"))
+            if isinstance(cut, dict)
+            else None
+        ),
+        corrupt_at_message=(
+            _int_or_none(corrupt.get("at_message"))
+            if isinstance(corrupt, dict)
             else None
         ),
     )
@@ -789,6 +805,12 @@ def describe(decision: Decision) -> str:
             parts.append(f"request:cut_upload:{xf.after_bytes}B")
         elif xf.after_frac is not None:
             parts.append("request:cut_upload")
+        if xf.after_messages is not None:
+            parts.append(f"request:cut_upload:msg{xf.after_messages}")
+        if xf.corrupt_at_message is not None:
+            parts.append(
+                f"request:corrupt_upload:msg{xf.corrupt_at_message}"
+            )
     rf = decision.response_fault
     if rf is not None:
         if rf.truncate_bytes is not None or rf.truncate_frac is not None:

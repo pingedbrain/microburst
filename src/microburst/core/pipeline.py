@@ -122,6 +122,7 @@ class Microburst:
                     data, cut = await consume_upload(
                         request, body, decision.request_fault
                     )
+                    event.note = decision.request_fault.note
                     if cut:
                         # socket already dead — nothing can be written
                         return web.Response(status=200)
@@ -131,11 +132,16 @@ class Microburst:
                 # terminal effects didn't fire → forward, possibly
                 # mutating the response on the way back
                 self.stats.record_forward()
-                return await self.upstream.relay(
+                resp = await self.upstream.relay(
                     request, body,
                     mutator=decision.response_fault,
                     data=data,
                 )
+                if decision.request_fault is not None:
+                    # A streaming corrupt_upload sets its note while the
+                    # upstream send drains the transform — final by now.
+                    event.note = decision.request_fault.note
+                return resp
 
         self.stats.record_forward()
         return await self.upstream.relay(request, body)
