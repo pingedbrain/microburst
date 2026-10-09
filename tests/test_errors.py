@@ -48,6 +48,29 @@ def test_json_coral_layer_codes_get_coral_prefix():
     )
 
 
+def test_json_coral_layer_uses_capital_message():
+    """Coral front-layer errors carry ``Message`` (capital), not the
+    service-layer ``message`` — sfn capture:
+    ``{"__type":"com.amazon.coral.service#AccessDeniedException","Message":…}``."""
+    _s, _h, body = render_error(
+        "stepfunctions", "AccessDeniedException", "denied", 400
+    )
+    payload = json.loads(body)
+    assert payload["Message"] == "denied"
+    assert "message" not in payload
+
+
+def test_rest_json_request_id_member_filled():
+    """Pinpoint's NotFoundException declares a RequestID member and AWS
+    fills it (real capture: {"RequestID": …, "Message": …})."""
+    _s, headers, body = render_error(
+        "pinpoint", "NotFoundException", "not found", 404
+    )
+    payload = json.loads(body)
+    assert payload["Message"] == "not found"
+    assert payload["RequestID"] == headers["x-amzn-RequestId"]
+
+
 def test_json_observed_ct_wins_over_model_version():
     """A client pinned to x-amz-json-1.0 gets the 1.0 CT back even when the
     model declares 1.1 — the observed wire wins, like ctx.protocol."""
@@ -117,10 +140,58 @@ def test_error_fields_render_per_protocol():
         "sns", "Throttling", "slow", 400,
         fields={"Extra": "x", "Nested": {"a": 1}, "Tags": ["t1", "t2"]},
     )
-    err = ET.fromstring(body).find("Error")
+    err = ET.fromstring(body).find("{*}Error")
+    assert err.findtext("{*}Extra") == "x"
+    assert err.findtext("{*}Nested/{*}a") == "1"
+    assert [t.text for t in err.findall("{*}Tags")] == ["t1", "t2"]
+
+
+def test_query_xmlns_and_member_order():
+    """Real AWS query captures (cfn/iam/rds/elbv2): ErrorResponse carries
+    the model's xmlNamespace and Error members order Type, Code, Message,
+    pretty-printed — no XML declaration."""
+    _s, headers, body = render_error(
+        "cloudformation", "ValidationError", "nope", 400,
+    )
+    assert headers["Content-Type"] == "text/xml"
+    text = body.decode()
+    assert not text.startswith("<?xml")
+    ns = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
+    root = ET.fromstring(text)
+    assert root.tag == f"{{{ns}}}ErrorResponse"
+    members = [c.tag.rsplit("}", 1)[-1] for c in root.find(f"{{{ns}}}Error")]
+    assert members[:3] == ["Type", "Code", "Message"]
+    assert root.findtext(f"{{{ns}}}RequestId") == headers["x-amzn-RequestId"]
+
+
+def test_query_unknown_service_no_xmlns():
+    """Unknown services still render a parseable bare ErrorResponse."""
+    _s, _h, body = render_error(
+        "not-a-service", "Boom", "x", 400, protocol="query",
+    )
+    root = ET.fromstring(body)
+    assert root.tag == "ErrorResponse"
+    assert root.findtext("Error/Code") == "Boom"
+
+
+def test_ec2_envelope():
+    """Real AWS ec2 capture: ``<?xml version="1.0" encoding="UTF-8"?>``
+    then compact ``<Response><Errors><Error>`` — no Type, no xmlns,
+    ``RequestID`` (capital D) — and text/xml;charset=UTF-8."""
+    _s, headers, body = render_error(
+        "ec2", "InvalidInstanceID.Malformed", "bad id", 400,
+        fields={"Extra": "x"},
+    )
+    assert headers["Content-Type"] == "text/xml;charset=UTF-8"
+    text = body.decode()
+    assert text.startswith('<?xml version="1.0" encoding="UTF-8"?>\n')
+    root = ET.fromstring(text)
+    assert root.tag == "Response"
+    err = root.find("Errors/Error")
+    assert err.findtext("Code") == "InvalidInstanceID.Malformed"
     assert err.findtext("Extra") == "x"
-    assert err.findtext("Nested/a") == "1"
-    assert [t.text for t in err.findall("Tags")] == ["t1", "t2"]
+    assert err.find("Type") is None
+    assert root.findtext("RequestID") == headers["x-amzn-RequestId"]
 
 
 def test_error_fields_must_be_mapping():
@@ -139,8 +210,8 @@ def test_query_protocol_xml():
     )
     assert headers["Content-Type"] == "text/xml"
     root = ET.fromstring(body)
-    assert root.findtext("Error/Code") == "Throttling"
-    assert root.find("RequestId") is not None
+    assert root.findtext("{*}Error/{*}Code") == "Throttling"
+    assert root.find("{*}RequestId") is not None
 
 
 def test_rest_xml_s3():

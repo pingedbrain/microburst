@@ -54,6 +54,12 @@ def render(
                 payload[name] = message
             elif name.lower() == "type":
                 payload[name] = "User"
+            elif name.lower().replace("_", "") in (
+                "requestid", "requestidentifier",
+            ):
+                # Pinpoint's NotFoundException declares RequestID and AWS
+                # fills it on the wire (real capture).
+                payload[name] = request_id
         if not payload:
             payload["message"] = message
     else:

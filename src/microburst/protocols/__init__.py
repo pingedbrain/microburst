@@ -46,12 +46,13 @@ def get_serializer(protocol: str | None) -> Callable | None:
     return _SERIALIZERS.get(protocol or "")
 
 
-def xml_members(fields: dict | None) -> str:
+def xml_members(fields: dict | None, sep: str = "") -> str:
     """Error-shape members as XML elements: dicts nest, lists repeat the
-    parent tag, scalars are escaped text."""
+    parent tag, scalars are escaped text. ``sep`` joins top-level
+    members (e.g. ``"\\n    "`` to pretty-print one member per line)."""
     if not fields:
         return ""
-    return "".join(_xml_member(k, v) for k, v in fields.items())
+    return sep.join(_xml_member(k, v) for k, v in fields.items())
 
 
 def _xml_member(name: str, value) -> str:

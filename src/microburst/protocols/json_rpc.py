@@ -54,7 +54,15 @@ def render(
         if code in _CORAL_LAYER_CODES
         else _TYPE_PREFIX.get(service or "", "")
     )
-    member = error_message_member(service, code) if service else "message"
+    # Coral front-layer errors aren't in the service model, so
+    # error_message_member can't see them — the capture shows they carry
+    # capital ``Message`` (sfn: {"__type":"com.amazon.coral.service#…",
+    # "Message":"…"}), unlike service-layer ``message``.
+    member = (
+        "Message"
+        if code in _CORAL_LAYER_CODES
+        else (error_message_member(service, code) if service else "message")
+    )
     payload = {"__type": f"{prefix}{code}", member: message}
     if fields:
         payload.update(fields)

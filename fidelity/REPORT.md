@@ -1,17 +1,17 @@
 # Live-AWS fidelity report
 
-Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+Captured 2026-10-09 15:09 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
 
 | service | operation | error code | AWS status | ours | AWS CT | ours | verdict |
 |---|---|---|---|---|---|---|---|
 | apigateway | get_rest_api | `NotFoundException` | 404 | 404 | `application/json` | `application/json` | ✅ |
 | appsync | get_graphql_api | `NotFoundException` | 404 | 404 | `application/json` | `application/json` | ✅ |
-| athena | get_work_group | `InvalidRequestException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
+| athena | get_work_group | `InvalidRequestException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ❌ |
 | cloudformation | describe_stacks | `ValidationError` | 400 | 400 | `text/xml` | `text/xml` | ✅ |
 | cloudwatch | get_dashboard | `ResourceNotFound` | 404 | 404 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
 | cognito-idp | describe_user_pool | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 | dynamodb | describe_table | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
-| ec2 | describe_instances | `InvalidInstanceID.Malformed` | 400 | 400 | `text/xml;charset=UTF-8` | `text/xml` | ✅ |
+| ec2 | describe_instances | `InvalidInstanceID.Malformed` | 400 | 400 | `text/xml;charset=UTF-8` | `text/xml;charset=UTF-8` | ✅ |
 | elbv2 | describe_load_balancers | `ValidationError` | 400 | 400 | `text/xml` | `text/xml` | ✅ |
 | events | describe_event_bus | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 | glacier | describe_vault | `ResourceNotFoundException` | 404 | 404 | `application/json` | `application/json` | ✅ |
@@ -33,4 +33,12 @@ Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a
 | stepfunctions | describe_state_machine | `AccessDeniedException` | 400 | 400 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
 | wafv2 | get_web_acl | `ValidationException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 
-**28/28 probes: status + parsed Error.Code + Content-Type match.**
+**27/28 probes: status + parsed Error.Code + Content-Type + envelope shape match.**
+
+## Diffs
+
+### athena.get_work_group (`InvalidRequestException`)
+- envelope shape: AWS `{'kind': 'json', 'keys': ['AthenaErrorCode', 'ErrorCode', 'Message', '__type'], 'type_ns': 'InvalidRequestException'}` vs ours `{'kind': 'json', 'keys': ['Message', '__type'], 'type_ns': 'InvalidRequestException'}`
+- real body keys: `['AthenaErrorCode', 'ErrorCode', 'Message', '__type']` vs ours `['Message', '__type']`
+- real rid headers: `['x-amzn-RequestId']` vs ours `['x-amzn-RequestId']`
+- real body: `{"__type":"InvalidRequestException","AthenaErrorCode":"INVALID_INPUT","ErrorCode":"INVALID_INPUT","Message":"WorkGroup is not found."}`

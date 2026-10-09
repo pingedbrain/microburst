@@ -67,6 +67,23 @@ query-marker + required-header disambiguation.
   query/ec2/rest-xml, CBOR map); S3-family errors auto-carry `Resource`,
   `RequestId`, and `HostId` matching `x-amz-id-2`; route53/cloudfront emit
   the `ErrorResponse`+xmlns envelope verified on the route53 capture.
+- ~~ec2 envelope~~ ✅ — real AWS sends `<?xml?><Response><Errors><Error>` +
+  `<RequestID>` (capital D, no `<Type>`) with `text/xml;charset=UTF-8`;
+  we emitted the query `ErrorResponse` shape. Fixed + structural
+  regression coverage. (real AWS capture)
+- ~~query `xmlns`~~ ✅ — cfn/iam/rds/elbv2 captures carry
+  `<ErrorResponse xmlns="…">` from the model's `xmlNamespace` with
+  pretty-printed Type, Code, Message ordering. (real AWS capture)
+- ~~Coral-layer `Message`~~ ✅ — front-layer auth errors carry capital
+  `Message`, not service-layer `message` (sfn capture).
+- ~~rest-json RequestID members~~ ✅ — error-shape members named
+  `RequestID`/`RequestIdentifier` are filled from the request id
+  (pinpoint capture).
+- **athena error-code taxonomy** — AWS athena errors carry unmodeled
+  `ErrorCode` + modeled `AthenaErrorCode` string fields
+  (`"INVALID_INPUT"`); the value is an internal taxonomy not derivable
+  from the model — needs more captures to map error → taxonomy value.
+  `[size:S]` (real AWS capture — known divergence, see REPORT.md)
 
 ## Effects (`effects/`)
 
@@ -81,6 +98,19 @@ query-marker + required-header disambiguation.
 - ~~Latency distributions (gaussian, spike)~~ ✅ — `latency: {dist: gaussian,
   mean, stddev, min?, max?}` and `{dist: spike, min, max, spike_ms, spike_p}`;
   uniform stays the default.
+- **SigV4 fault presets** — `RequestTimeTooSkewed`, `SignatureDoesNotMatch`,
+  expired-token style auth failures as first-class presets (today they need
+  hand-rolled `error:` rules). `[size:S]` `[good-first-issue]`
+- **Response header mutation** — `response: {set_headers:, strip_headers:}`
+  — wrong Content-Type on a 200, stripped `x-amz-*` headers: exercises SDK
+  parse failure paths that body corruption doesn't reach. `[size:S]`
+- **Request-side faults** — truncated/slow request *uploads*
+  (client→proxy direction): exercises SDK write paths, not just read
+  paths. `[size:M]`
+- **Service latency presets** — feed measured per-service latency
+  distributions from captures into named presets
+  (`latency: {preset: dynamodb}`) so faults feel like the real service's
+  baseline. `[size:M]`
 
 ## Rules (`rules.py`)
 
@@ -97,6 +127,9 @@ query-marker + required-header disambiguation.
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
   the request identity; same resource always lands on the same side of p,
   and failure tiers nest monotonically.
+- **Scheduled activation windows** — `active_at`/`until` so a rule can arm
+  for a future window (complements `ttl_s`, which only expires).
+  `[size:S]` `[good-first-issue]`
 
 ## Control plane (`control.py`)
 
@@ -110,6 +143,9 @@ query-marker + required-header disambiguation.
 - ~~OTel span emission per injected fault~~ ✅ — `microburst.fault` spans
   via optional `opentelemetry-api` (`pip install microburst[otel]`);
   no-op when absent.
+- **Rules file hot-reload** — watch the `--rules` file and reload on
+  change, so a chaos.yml edit takes effect without restarting the proxy.
+  `[size:S]` `[good-first-issue]`
 
 ## Data plane (`forward.py`)
 
@@ -168,6 +204,18 @@ query-marker + required-header disambiguation.
   (`?operation=create` vs `suspend`), required querystring members score
   (S3 `partNumber`/`uploadId`), and route specificity breaks ties when a
   greedy `{Label+}` swallows literal sibling segments.
+- ~~Structural envelope conformance~~ ✅ — `conform`/`report` now diff a
+  body signature on top of status/code/CT: namespace-qualified XML
+  element paths + `<?xml` presence for XML, top-level keys + `__type`
+  namespace prefix for JSON. Immediately caught four real divergences
+  (ec2 `Response/Errors` envelope, missing query `xmlns`, coral
+  `Message` casing, pinpoint `RequestID`) — all fixed except athena's
+  unmodeled taxonomy.
+- **`fidelity diff`** — compare two capture sets directly (emulator A vs
+  B, or against a fresh AWS run) without routing through the committed
+  goldens. `[size:S]`
+- **SDK matrix expansion** — aws-sdk-rust and .NET cells; the matrix
+  already caught a real detection bug once. `[size:M]`
 
 ## Ecosystem
 
@@ -198,6 +246,9 @@ query-marker + required-header disambiguation.
   failure scenarios (throttled writes, timeout cascade, poison queue,
   S3 SlowDown, stream cuts, expired token, generic HTTP) with configs
   kept parseable by a test.
+- **Scripted end-to-end demo** — `app → microburst → MiniStack`
+  walkthrough (the "watch boto3 actually retry" asset) as a runnable
+  script + recorded output for the README. `[size:S]`
 
 ## Explicitly out of scope (for now)
 

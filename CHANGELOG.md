@@ -19,9 +19,30 @@ All notable changes to this project will be documented here. Format follows
   flat elements on rest-xml, CBOR map entries). S3-family errors now also
   carry the wire-standard `Resource`, `RequestId`, and `HostId` (matching
   the `x-amz-id-2` header).
+- **Envelope-shape conformance** — `fidelity report` and `fidelity conform`
+  now diff a structural body signature in addition to status/code/CT:
+  namespace-qualified XML element paths + `<?xml` presence, and JSON
+  top-level keys + `__type` namespace prefix. Catches wire-shape drift
+  botocore's parser tolerates (wrong envelope root, missing `xmlns`,
+  `RequestID` vs `RequestId`).
 
 ### Fixed
 
+- **ec2 error envelope** — ec2-protocol errors now render the real AWS
+  shape (`<?xml version="1.0" encoding="UTF-8"?>` +
+  `<Response><Errors><Error>` with `<RequestID>` and no `<Type>`, at
+  `text/xml;charset=UTF-8`) instead of the query `ErrorResponse` shape
+  (real AWS capture).
+- **query `xmlns` + member order** — query-protocol errors carry the
+  model's `xmlNamespace` on `ErrorResponse` and AWS's pretty-printed
+  Type, Code, Message member order (verified on cfn/iam/rds/elbv2
+  captures).
+- **Coral-layer `Message` casing** — front-layer auth errors emit capital
+  `Message` (sfn capture), not the service-layer `message`.
+- **rest-json RequestID members** — error-shape members named
+  `RequestID`/`RequestIdentifier` are filled from the request id
+  (pinpoint capture). Athena's unmodeled `ErrorCode`/`AthenaErrorCode`
+  taxonomy remains a documented divergence.
 - **Coral front-layer `__type` prefix** — auth-layer codes
   (`ExpiredTokenException`, `UnrecognizedClientException`,
   `InvalidClientTokenId`, `AccessDeniedException`,

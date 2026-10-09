@@ -304,6 +304,55 @@ def _top_keys(body: str | None) -> list[str]:
         return ["<non-json>"]
 
 
+def _envelope_signature(body: str | None) -> dict:
+    """Structural fingerprint of an error body — the wire *shape*,
+    independent of the values it carries.
+
+    XML: namespace-qualified element paths (text stripped — request ids
+    and messages always vary) plus whether an ``<?xml`` declaration is
+    present. This is what catches ``Response/Errors`` vs ``ErrorResponse``,
+    a missing ``xmlns``, or ``RequestID`` vs ``RequestId``. JSON: sorted
+    top-level keys plus the ``__type`` namespace prefix (``None`` when
+    absent, so a bare code, a namespaced code, and a missing ``__type``
+    all differ). Anything else degrades to a single marker.
+    """
+    import xml.etree.ElementTree as ET
+
+    if not body:
+        return {"kind": "empty"}
+    if body.lstrip().startswith("<"):
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError:
+            return {"kind": "unparseable"}
+        paths = {root.tag}
+
+        def walk(el, prefix):
+            for child in el:
+                path = f"{prefix}/{child.tag}"
+                paths.add(path)
+                walk(child, path)
+
+        walk(root, root.tag)
+        return {
+            "kind": "xml",
+            "xml_decl": body.startswith("<?xml"),
+            "tags": sorted(paths),
+        }
+    try:
+        obj = json.loads(body)
+    except ValueError:
+        return {"kind": "other"}
+    if not isinstance(obj, dict):
+        return {"kind": "non-dict"}
+    type_val = obj.get("__type")
+    return {
+        "kind": "json",
+        "keys": sorted(obj),
+        "type_ns": type_val.split("#", 1)[0] if type_val else None,
+    }
+
+
 def report(out_dir: Path) -> int:
     """Diff every capture against what microburst would have rendered."""
     from botocore.parsers import create_parser
@@ -357,13 +406,20 @@ def report(out_dir: Path) -> int:
         status_ok = ours_status == real_status
         code_ok = ours_code == real_code
         ct_ok = ours_ct.split(";")[0] == real_ct.split(";")[0]
-        verdict = "✅" if (status_ok and code_ok and ct_ok) else "❌"
+        shape_ok = _envelope_signature(real_body) == _envelope_signature(
+            ours_body.decode()
+        )
+        verdict = (
+            "✅" if (status_ok and code_ok and ct_ok and shape_ok) else "❌"
+        )
         rows.append((
             svc, op, code, real_status, ours_status,
             real_ct or "—", ours_ct, verdict,
-            status_ok, code_ok, ct_ok,
+            status_ok, code_ok, ct_ok, shape_ok,
             {"real_keys": _top_keys(real_body),
              "ours_keys": _top_keys(ours_body.decode()),
+             "real_sig": _envelope_signature(real_body),
+             "ours_sig": _envelope_signature(ours_body.decode()),
              "real_rid_headers": sorted(
                  h for h in cap["headers"]
                  if "request" in h.lower() or "id" in h.lower()),
@@ -387,8 +443,9 @@ def report(out_dir: Path) -> int:
         "|---|---|---|---|---|---|---|---|",
     ]
     n_pass = 0
-    for svc, op, code, rs, os_, rct, oct_, verdict, s_ok, c_ok, ct_ok, d in rows:
-        if s_ok and c_ok and ct_ok:
+    for svc, op, code, rs, os_, rct, oct_, verdict, s_ok, c_ok, ct_ok, \
+            sh_ok, d in rows:
+        if s_ok and c_ok and ct_ok and sh_ok:
             n_pass += 1
         lines.append(
             f"| {svc} | {op} | `{code}` | {rs} | {os_} | `{rct}` | `{oct_}` | {verdict} |"
@@ -396,16 +453,16 @@ def report(out_dir: Path) -> int:
     lines += [
         "",
         (f"**{n_pass}/{len(rows)} probes: status + parsed Error.Code "
-         "+ Content-Type match.**"),
+         "+ Content-Type + envelope shape match.**"),
         "",
     ]
 
     # field-level detail for anything that isn't a clean match
-    interesting = [r for r in rows if not (r[8] and r[9] and r[10])]
+    interesting = [r for r in rows if not (r[8] and r[9] and r[10] and r[11])]
     if interesting:
         lines += ["## Diffs", ""]
-        for svc, op, code, rs, os_, rct, oct_, v, s_ok, c_ok, ct_ok, d \
-                in interesting:
+        for svc, op, code, rs, os_, rct, oct_, v, s_ok, c_ok, ct_ok, \
+                sh_ok, d in interesting:
             lines.append(f"### {svc}.{op} (`{code}`)")
             if not s_ok:
                 lines.append(f"- status: AWS {rs} vs ours {os_}")
@@ -413,6 +470,10 @@ def report(out_dir: Path) -> int:
                 lines.append("- parsed Error.Code differs")
             if not ct_ok:
                 lines.append(f"- content-type: AWS `{rct}` vs ours `{oct_}`")
+            if not sh_ok:
+                lines.append(
+                    f"- envelope shape: AWS `{d['real_sig']}` vs ours "
+                    f"`{d['ours_sig']}`")
             lines.append(
                 f"- real body keys: `{d['real_keys']}` vs ours "
                 f"`{d['ours_keys']}`")
@@ -479,7 +540,8 @@ def conform(aws_dir: Path, emu_dir: Path) -> int:
     for name, aws in aws_caps.items():
         emu = emu_caps.get(name)
         if emu is None:
-            rows.append((name, "—", "missing", "—", "—", "—", "⬜"))
+            rows.append((name, "—", "missing", "—", "—", "—", "⬜",
+                         False, None, None))
             continue
         aws_parsed, _ = _parse_capture(aws, session)
         emu_parsed, _ = _parse_capture(emu, session)
@@ -487,37 +549,53 @@ def conform(aws_dir: Path, emu_dir: Path) -> int:
         emu_code = (emu_parsed.get("Error") or {}).get("Code")
         aws_ct = aws["headers"].get("Content-Type", "").split(";")[0]
         emu_ct = emu["headers"].get("Content-Type", "").split(";")[0]
+        shape_ok = _envelope_signature(aws.get("body")) == _envelope_signature(
+            emu.get("body")
+        )
         ok = (
             aws["status"] == emu["status"]
             and aws_code == emu_code
             and aws_ct == emu_ct
+            and shape_ok
         )
         rows.append((
             name, aws["status"], emu["status"], aws_code, emu_code,
             f"{aws_ct} → {emu_ct}" if aws_ct != emu_ct else emu_ct,
-            "✅" if ok else "❌",
+            "✅" if ok else "❌", shape_ok,
+            aws.get("body"), emu.get("body"),
         ))
 
-    n_pass = sum(1 for r in rows if r[-1] == "✅")
+    n_pass = sum(1 for r in rows if r[6] == "✅")
     lines = [
         "# Conformance report — emulator vs real AWS", "",
         ("Diffs each probe's emulator response against the committed "
          "real-AWS capture on the fields an SDK actually reads: HTTP "
-         "status, parsed `Error.Code`, Content-Type."),
+         "status, parsed `Error.Code`, Content-Type — plus the envelope "
+         "shape (XML element paths, `__type` namespacing)."),
         "",
-        "| probe | AWS status | emu status | AWS code | emu code | CT | |",
-        "|---|---|---|---|---|---|---|",
+        ("| probe | AWS status | emu status | AWS code | emu code | CT | "
+         "shape | |"),
+        "|---|---|---|---|---|---|---|---|",
     ]
-    for name, rs, es, rc, ec, ct, v in rows:
+    for name, rs, es, rc, ec, ct, v, sh_ok, _ab, _eb in rows:
+        shape = "✅" if sh_ok else ("—" if v == "⬜" else "❌")
         lines.append(
-            f"| {name} | {rs} | {es} | `{rc}` | `{ec}` | {ct} | {v} |"
+            f"| {name} | {rs} | {es} | `{rc}` | `{ec}` | {ct} | {shape} | {v} |"
         )
     lines += [
         "",
         (f"**{n_pass}/{len(rows)} probes conform "
-         "(status + parsed code + Content-Type).**"),
+         "(status + parsed code + Content-Type + envelope shape).**"),
         "",
     ]
+    mismatched = [r for r in rows if r[6] == "❌" and not r[7]]
+    if mismatched:
+        lines += ["## Envelope shape diffs", ""]
+        for name, _rs, _es, _rc, _ec, _ct, _v, _s, ab, eb in mismatched:
+            lines.append(f"### {name}")
+            lines.append(f"- AWS:   `{_envelope_signature(ab)}`")
+            lines.append(f"- emu:   `{_envelope_signature(eb)}`")
+            lines.append("")
     out = emu_dir / "CONFORM.md"
     out.write_text("\n".join(lines))
     print(f"conformance → {out}  ({n_pass}/{len(rows)} conform)")
