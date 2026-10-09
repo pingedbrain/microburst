@@ -313,15 +313,13 @@ envelopes are also checked against AWS-authored wire expectations on
 every test run.
 
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
-27/28 probes matching AWS on status, parsed `Error.Code`, Content-Type,
+28/28 probes matching AWS on status, parsed `Error.Code`, Content-Type,
 **and envelope shape** (XML element paths, `__type` namespacing) —
 including the details that matter to SDK retry behavior:
 `x-amz-json-1.1` content types, `com.amazonaws.*`-namespaced `__type`,
 rest-json `x-amzn-ErrorType` headers, SQS's `AWS.SimpleQueueService.*`
-query-compat namespace, Route53's `text/xml`, and empty-body HEAD errors.
-The one documented divergence is Athena's unmodeled `ErrorCode`/
-`AthenaErrorCode` taxonomy — the values aren't derivable from the
-service model.
+query-compat namespace, Route53's `text/xml`, empty-body HEAD errors, and
+Athena's `AthenaErrorCode`/`ErrorCode` semantic fields.
 
 The envelopes are also region-invariant: the same probe set captured in
 every enabled region of a real account (17 regions) conforms 28/28 —

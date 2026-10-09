@@ -64,6 +64,16 @@ def render(
         else (error_message_member(service, code) if service else "message")
     )
     payload = {"__type": f"{prefix}{code}", member: message}
+    # Real AWS observation (us-east-1, 9 ops probed): athena
+    # InvalidRequestException always carries a *semantic* duplicate of
+    # the failure in ``AthenaErrorCode`` + ``ErrorCode`` — INVALID_INPUT
+    # for missing workgroups/catalogs, NAMED_QUERY_NOT_FOUND,
+    # QUERY_EXECUTION_NOT_FOUND, etc. MetadataException carries neither.
+    # INVALID_INPUT is the generic default; fields can override with a
+    # more specific reason.
+    if service == "athena" and code == "InvalidRequestException":
+        payload.setdefault("AthenaErrorCode", "INVALID_INPUT")
+        payload.setdefault("ErrorCode", "INVALID_INPUT")
     if fields:
         payload.update(fields)
     body = json.dumps(payload).encode()

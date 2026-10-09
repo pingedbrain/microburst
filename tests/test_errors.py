@@ -194,6 +194,34 @@ def test_ec2_envelope():
     assert root.findtext("RequestID") == headers["x-amzn-RequestId"]
 
 
+def test_athena_semantic_error_fields():
+    """Real AWS probing (us-east-1, 9 ops): athena InvalidRequestException
+    always carries semantic ``AthenaErrorCode``+``ErrorCode`` —
+    ``INVALID_INPUT`` for missing workgroups/catalogs,
+    ``NAMED_QUERY_NOT_FOUND``, etc. MetadataException carries neither.
+    Default is INVALID_INPUT; ``fields`` override with the real reason."""
+    _s, _h, body = render_error(
+        "athena", "InvalidRequestException", "WorkGroup is not found.", 400
+    )
+    payload = json.loads(body)
+    assert payload["AthenaErrorCode"] == "INVALID_INPUT"
+    assert payload["ErrorCode"] == "INVALID_INPUT"
+
+    _s, _h, body = render_error(
+        "athena", "InvalidRequestException", "not found", 400,
+        fields={"AthenaErrorCode": "NAMED_QUERY_NOT_FOUND",
+                "ErrorCode": "NAMED_QUERY_NOT_FOUND"},
+    )
+    assert json.loads(body)["AthenaErrorCode"] == "NAMED_QUERY_NOT_FOUND"
+
+    _s, _h, body = render_error(
+        "athena", "MetadataException", "Entity Not Found", 400
+    )
+    payload = json.loads(body)
+    assert "AthenaErrorCode" not in payload
+    assert "ErrorCode" not in payload
+
+
 def test_error_fields_must_be_mapping():
     import pytest
 

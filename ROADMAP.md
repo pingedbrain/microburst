@@ -79,11 +79,12 @@ query-marker + required-header disambiguation.
 - ~~rest-json RequestID members~~ ✅ — error-shape members named
   `RequestID`/`RequestIdentifier` are filled from the request id
   (pinpoint capture).
-- **athena error-code taxonomy** — AWS athena errors carry unmodeled
-  `ErrorCode` + modeled `AthenaErrorCode` string fields
-  (`"INVALID_INPUT"`); the value is an internal taxonomy not derivable
-  from the model — needs more captures to map error → taxonomy value.
-  `[size:S]` (real AWS capture — known divergence, see REPORT.md)
+- ~~athena error-code taxonomy~~ ✅ — resolved with real AWS probing
+  (us-east-1, 9 ops): `InvalidRequestException` always carries semantic
+  `AthenaErrorCode`+`ErrorCode` (`INVALID_INPUT`,
+  `NAMED_QUERY_NOT_FOUND`, `QUERY_EXECUTION_NOT_FOUND`…); `MetadataException`
+  carries neither. Default `INVALID_INPUT` emitted, overridable via
+  `error.fields`.
 
 ## Effects (`effects/`)
 
@@ -214,8 +215,8 @@ query-marker + required-header disambiguation.
   element paths + `<?xml` presence for XML, top-level keys + `__type`
   namespace prefix for JSON. Immediately caught four real divergences
   (ec2 `Response/Errors` envelope, missing query `xmlns`, coral
-  `Message` casing, pinpoint `RequestID`) — all fixed except athena's
-  unmodeled taxonomy.
+  `Message` casing, pinpoint `RequestID`, athena `AthenaErrorCode`) —
+  all fixed; report is 28/28.
 - ~~`fidelity diff`~~ ✅ — `microburst fidelity diff A B` compares any two
   capture sets (same fields as conform, neutral labels, writes `DIFF.md`
   into B). Verified: us-west-2 vs ap-southeast-2 AWS captures are

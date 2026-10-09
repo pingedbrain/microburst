@@ -48,6 +48,10 @@ All notable changes to this project will be documented here. Format follows
   `starts_in_s`/`ends_in_s` appear in `GET /rules`.
 - **Rules hot-reload** — `--watch` reloads the `--config` file's rules
   on every save; a broken file keeps the previous ruleset.
+- **Athena semantic error fields** — `InvalidRequestException` now
+  carries `AthenaErrorCode`+`ErrorCode` (default `INVALID_INPUT`,
+  overridable via `error.fields`) — real AWS probing showed the fields
+  are always present on that exception. Fidelity report is now **28/28**.
 
 ### Fixed
 
