@@ -4,7 +4,7 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-09
 
 ### Added
 
@@ -44,6 +44,20 @@ All notable changes to this project will be documented here. Format follows
   percentiles over a bounded reservoir (last 2048 relays, measured
   send → response-headers), per-rule hit counts that survive rule
   deletion, and a per-service request/fault split.
+- **Happy-path fidelity captures** — `SUCCESS_PROBES` (25 read-only
+  list/describe ops across all six wire families) capture real 2xx
+  responses tagged `"kind": "success"`. `conform`/`diff` compare them on
+  status + Content-Type + envelope shape; `report` skips them
+  (microburst forwards success bodies, never renders). 25 real-AWS
+  success goldens committed, content-scrubbed with structure preserved.
+- **Fidelity regression gate** — `test_fidelity_gate.py` runs
+  `check_capture` over every committed error capture (status, parsed
+  `Error.Code`, Content-Type, envelope shape) inside pytest — serializer
+  drift from a golden fails CI automatically.
+- **Emulator conformance CI** — weekly `emulator-conformance` workflow
+  captures the probe set against LocalStack (pinned 4.14.0 — `latest`
+  now requires an auth token) and publishes the `conform` score as a
+  step summary + artifact. Informational, never a merge gate.
 
 ## [0.8.0] - 2026-10-09
 
