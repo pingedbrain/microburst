@@ -1,14 +1,21 @@
-"""Live-AWS fidelity harness — capture real error responses and diff them
-against microburst's renderer.
+"""Live-AWS fidelity harness — capture real wire responses and diff them
+against microburst's renderer (errors) or a second capture set (both).
 
 Captures raw wire responses (status, headers, body) by wrapping botocore's
 urllib3 send — real TLS, real AWS bytes, no proxy plumbing. Then diffs each
-capture against ``render_error()``: status, Content-Type, body top-level
-fields, request-id placement, and — what matters most — the ``Error.Code``
-the SDK parser recovers from each.
+error capture against ``render_error()``: status, Content-Type, body
+top-level fields, request-id placement, and — what matters most — the
+``Error.Code`` the SDK parser recovers from each.
+
+``PROBES`` produce errors on purpose; ``SUCCESS_PROBES`` are read-only
+list/describe calls that return 200 on a fresh account, so
+``conform``/``diff`` can compare success envelopes (emulator vs AWS) too.
+Microburst never renders success bodies — it forwards them — so ``report``
+skips success captures.
 
 Credentials come from ``AWS_PROFILE``/env; every probe targets a
-nonexistent resource (read-only — nothing is created or mutated).
+nonexistent resource or is a plain list/read (nothing is created or
+mutated).
 
     microburst fidelity capture [--services dynamodb,s3] [--out DIR]
     microburst fidelity report [--dir DIR]
@@ -79,12 +86,102 @@ PROBES: list[tuple[str, str, dict[str, Any], str]] = [
      {"StackName": NONEXIST}, "query"),
 ]
 
+# read-only operations that return 200 on a fresh account (and on
+# emulators) — the happy-path counterpart to PROBES. Captures are tagged
+# ``kind: "success"`` and compared envelope-to-envelope by conform/diff;
+# report skips them (microburst forwards success bodies, it never renders
+# them). Kwargs stay minimal so every call works with empty datasets.
+SUCCESS_PROBES: list[tuple[str, str, dict[str, Any], str]] = [
+    # (service, boto3 method, kwargs, protocol family)
+    ("dynamodb", "list_tables", {}, "json"),
+    ("kms", "list_keys", {}, "json"),
+    ("secretsmanager", "list_secrets", {}, "json"),
+    ("logs", "describe_log_groups", {}, "json"),
+    ("kinesis", "list_streams", {}, "json"),
+    ("stepfunctions", "list_state_machines", {}, "json"),
+    ("cognito-idp", "list_user_pools", {"MaxResults": 60}, "json"),
+    ("wafv2", "list_web_acls", {"Scope": "REGIONAL"}, "json"),
+    ("sqs", "list_queues", {}, "query"),
+    ("sns", "list_topics", {}, "query"),
+    ("iam", "list_users", {}, "query"),
+    ("sts", "get_caller_identity", {}, "query"),
+    ("elbv2", "describe_load_balancers", {}, "query"),
+    ("rds", "describe_db_instances", {}, "query"),
+    ("cloudformation", "describe_stacks", {}, "query"),
+    ("ec2", "describe_instances", {}, "ec2"),
+    ("ec2", "describe_regions", {}, "ec2"),
+    ("s3", "list_buckets", {}, "rest-xml"),
+    ("route53", "list_hosted_zones", {}, "rest-xml"),
+    ("lambda", "list_functions", {}, "rest-json"),
+    ("apigateway", "get_rest_apis", {}, "rest-json"),
+    ("glacier", "list_vaults", {"accountId": "-"}, "rest-json"),
+    ("sesv2", "list_email_identities", {}, "rest-json"),
+    # query-compat JSON on the wire even though the model says rpc-v2-cbor
+    ("cloudwatch", "list_dashboards", {}, "query-compat"),
+    ("events", "list_event_buses", {}, "query-compat"),
+]
+
+# base filenames already claimed by error probes — a success probe that
+# shares one (e.g. ec2 describe_instances with vs without InstanceIds)
+# gets a ``__ok`` suffix so the two captures coexist and conform/diff
+# filename matching stays unambiguous.
+_ERROR_PROBE_NAMES = {f"{s}_{m}" for s, m, _, _ in PROBES}
+
+
+def _capture_name(service: str, method: str, kind: str) -> str:
+    base = f"{service}_{method}"
+    if kind == "success" and base in _ERROR_PROBE_NAMES:
+        base += "__ok"
+    return f"{base}.json"
+
+
+def _is_success(cap: dict) -> bool:
+    """True when a capture is a happy-path probe. ``kind`` is
+    authoritative on new captures; older captures predate the field so
+    wire evidence decides — a sub-400 status or no parsed SDK error code
+    means the call succeeded."""
+    if cap.get("kind") is not None:
+        return cap["kind"] == "success"
+    return cap.get("status", 200) < 400 or cap.get("sdk_error_code") is None
+
 
 def _rebind_region(kwargs: dict, region: str) -> dict:
     """Probe kwargs embed literal regions (ARN fields) — rebind so a
     multi-region capture exercises that region's own resources."""
     raw = json.dumps(kwargs).replace("us-east-1", region)
     return json.loads(raw)
+
+
+def _store_capture(
+    captures: dict,
+    capture_dir: Path,
+    *,
+    service: str,
+    method: str,
+    family: str,
+    model_service: str,
+    sdk_error_code: str | None,
+    kind: str,
+    account_id: str | None,
+    region: str,
+) -> dict | None:
+    """Pop the wrapped-send capture, redact the account id, tag it with
+    probe metadata + provenance, and write ``captures/<name>.json``.
+    Returns the capture dict, or ``None`` when no response was recorded."""
+    cap = captures.pop("last", None)
+    if cap is None:
+        return None
+    if account_id and cap.get("body"):
+        cap["body"] = cap["body"].replace(account_id, "000000000000")
+    cap.update(
+        service=service, operation=method, family=family,
+        model_service=model_service, sdk_error_code=sdk_error_code,
+        kind=kind, ts=time.time(),
+        provenance=_provenance(cap["headers"], region),
+    )
+    path = capture_dir / _capture_name(service, method, kind)
+    path.write_text(json.dumps(cap, indent=2, sort_keys=True))
+    return cap
 
 
 def capture(
@@ -162,21 +259,55 @@ def capture(
         except Exception as e:  # noqa: BLE001 — report and continue
             print(f"  {service}.{method}: {type(e).__name__}: {e}")
             continue
-        cap = captures.pop("last", None)
+        cap = _store_capture(
+            captures, capture_dir,
+            service=service, method=method, family=family,
+            model_service=client.meta.service_model.service_name,
+            sdk_error_code=code, kind="error",
+            account_id=account_id, region=region,
+        )
         if cap is None:
             print(f"  {service}.{method}: error but no capture")
             continue
-        if account_id and cap.get("body"):
-            cap["body"] = cap["body"].replace(account_id, "000000000000")
-        cap.update(
-            service=service, operation=method, family=family,
-            model_service=client.meta.service_model.service_name,
-            sdk_error_code=code, ts=time.time(),
-            provenance=_provenance(cap["headers"], region),
-        )
-        fname = capture_dir / f"{service}_{method}.json"
-        fname.write_text(json.dumps(cap, indent=2, sort_keys=True))
         print(f"  {service}.{method} → {code} ({cap['status']}) captured")
+        n_ok += 1
+
+    # happy-path probes — successful wire responses whose envelopes
+    # conform/diff compare (report skips them: microburst forwards
+    # success bodies rather than rendering them)
+    for service, method, kwargs, family in SUCCESS_PROBES:
+        if wanted and service not in wanted:
+            continue
+        client = boto3.client(
+            service, region_name=region, **client_kwargs
+        )
+        code = None
+        note = ""
+        try:
+            getattr(client, method)(**_rebind_region(kwargs, region))
+        except ClientError as e:
+            # an endpoint erroring on a read-only op is conformance
+            # evidence too — keep it tagged kind=success so conform flags
+            # the status divergence against the AWS golden
+            code = e.response.get("Error", {}).get("Code", "?")
+            note = f" (expected success, got {code})"
+        except EndpointConnectionError as e:
+            print(f"  {service}.{method}: unreachable ({e})")
+            continue
+        except Exception as e:  # noqa: BLE001 — report and continue
+            print(f"  {service}.{method}: {type(e).__name__}: {e}")
+            continue
+        cap = _store_capture(
+            captures, capture_dir,
+            service=service, method=method, family=family,
+            model_service=client.meta.service_model.service_name,
+            sdk_error_code=code, kind="success",
+            account_id=account_id, region=region,
+        )
+        if cap is None:
+            print(f"  {service}.{method}: no capture")
+            continue
+        print(f"  {service}.{method} → {cap['status']} captured{note}")
         n_ok += 1
     print(f"{n_ok} captures → {capture_dir}")
     return 0 if n_ok else 1
@@ -370,6 +501,12 @@ def check_capture(cap: dict, session) -> dict[str, Any]:
     from microburst.protocols import render_error
 
     svc, op = cap["service"], cap["operation"]
+    if _is_success(cap):
+        raise ValueError(
+            f"{svc}.{op}: success capture — microburst forwards "
+            "successful responses verbatim rather than rendering them; "
+            "compare success envelopes with conform()/diff()"
+        )
     code = cap["sdk_error_code"]
     real_status, real_ct = cap["status"], cap["headers"].get("Content-Type", "")
     real_body = cap.get("body") or ""
@@ -445,8 +582,14 @@ def report(out_dir: Path) -> int:
     report_path = out_dir / "REPORT.md"
     session = Session()
     rows = []
+    n_success = 0
     for path in sorted(capture_dir.glob("*.json")):
         cap = json.loads(path.read_text())
+        if _is_success(cap):
+            # success captures have no rendered counterpart — microburst
+            # forwards 2xx bodies verbatim; conform/diff compare them
+            n_success += 1
+            continue
         r = check_capture(cap, session)
         verdict = (
             "✅"
@@ -469,6 +612,16 @@ def report(out_dir: Path) -> int:
             "against real AWS (us-east-1). Each probe targets a nonexistent "
             "resource; captures are raw wire bytes via botocore's transport."
         ),
+    ]
+    if n_success:
+        lines.append("")
+        lines.append(
+            f"*{n_success} success-path capture(s) skipped — microburst "
+            "forwards successful upstream responses rather than rendering "
+            "them; `fidelity conform`/`fidelity diff` compare their "
+            "envelopes (status + Content-Type + body shape).*"
+        )
+    lines += [
         "",
         ("| service | operation | error code | AWS status | ours | "
          "AWS CT | ours | verdict |"),
@@ -600,8 +753,12 @@ def _compare(
         cap_b = b_caps.get(name)
         if cap_b is None:
             rows.append((name, "—", "missing", "—", "—", "—", "⬜",
-                         False, None, None))
+                         False, None, None, _is_success(cap_a)))
             continue
+        # success probes carry no Error.Code — the parsed code is None on
+        # both sides; an endpoint that errors a read-only op still shows
+        # up via status/code mismatch.
+        success = _is_success(cap_a) or _is_success(cap_b)
         a_parsed, _ = _parse_capture(cap_a, session)
         b_parsed, _ = _parse_capture(cap_b, session)
         a_code = (a_parsed.get("Error") or {}).get("Code")
@@ -621,7 +778,7 @@ def _compare(
             name, cap_a["status"], cap_b["status"], a_code, b_code,
             f"{a_ct} → {b_ct}" if a_ct != b_ct else b_ct,
             "✅" if ok else "❌", shape_ok,
-            cap_a.get("body"), cap_b.get("body"),
+            cap_a.get("body"), cap_b.get("body"), success,
         ))
 
     n_pass = sum(1 for r in rows if r[6] == "✅")
@@ -636,21 +793,32 @@ def _compare(
          f"{b_label} code | CT | shape | |"),
         "|---|---|---|---|---|---|---|---|",
     ]
-    for name, rs, es, rc, ec, ct, v, sh_ok, _ab, _eb in rows:
+    for name, rs, es, rc, ec, ct, v, sh_ok, _ab, _eb, success in rows:
         shape = "✅" if sh_ok else ("—" if v == "⬜" else "❌")
+        probe = f"{name} _(success)_" if success else name
+        # success bodies carry no error code — a dash, not `None`
+        rc_s, ec_s = ("—", "—") if success else (f"`{rc}`", f"`{ec}`")
         lines.append(
-            f"| {name} | {rs} | {es} | `{rc}` | `{ec}` | {ct} | {shape} | {v} |"
+            f"| {probe} | {rs} | {es} | {rc_s} | {ec_s} | {ct} | "
+            f"{shape} | {v} |"
         )
     lines += [
         "",
         (f"**{n_pass}/{len(rows)} probes {verb} "
          "(status + parsed code + Content-Type + envelope shape).**"),
-        "",
     ]
+    n_success = sum(1 for r in rows if r[10])
+    if n_success:
+        lines.append(
+            f"*{n_success} success-path probe(s) compared on status + "
+            "Content-Type + envelope shape — success bodies carry no "
+            "error code.*"
+        )
+    lines.append("")
     mismatched = [r for r in rows if r[6] == "❌" and not r[7]]
     if mismatched:
         lines += ["## Envelope shape diffs", ""]
-        for name, _rs, _es, _rc, _ec, _ct, _v, _s, ab, eb in mismatched:
+        for name, _rs, _es, _rc, _ec, _ct, _v, _s, ab, eb, _ok_ in mismatched:
             lines.append(f"### {name}")
             lines.append(f"- {a_label}:   `{_envelope_signature(ab)}`")
             lines.append(f"- {b_label}:   `{_envelope_signature(eb)}`")

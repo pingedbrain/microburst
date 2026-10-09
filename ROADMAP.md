@@ -233,10 +233,14 @@ query-marker + required-header disambiguation.
   counting, `=` pins) and AWSSDK-v4 .NET (`DelegatingHandler` attempt
   counting) cells; 20/20 pass with zero serializer changes. SDK-specific
   HEAD-error parse documented (rust → `null`, .NET → `ServiceUnavailable`).
-- **Happy-path captures** — all 28 probes are error responses; capturing
-  *successful* wire responses (List/Describe against real resources)
-  would let `conform`/`diff` check success envelopes too, not just
-  failure shapes. `[size:M]`
+- ~~**Happy-path captures**~~ ✅ — `SUCCESS_PROBES` (25 read-only
+  list/describe calls covering all six wire families) capture real 2xx
+  responses tagged `"kind": "success"` (`__ok`-suffixed when the op name
+  collides with an error probe). `conform`/`diff` compare them on
+  status + Content-Type + envelope shape — success bodies carry no error
+  code — and `report` skips them with a note. The gate parametrizes
+  error captures only. Goldens will be refreshed into
+  `fidelity/captures/` on the next real-AWS capture run.
 - ~~**Fidelity regression gate in CI**~~ ✅ — `test_fidelity_gate.py`
   runs `check_capture` (the pure comparison extracted from `report`)
   over every committed capture and asserts status + parsed

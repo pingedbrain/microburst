@@ -344,6 +344,16 @@ every enabled region of a real account (17 regions) conforms 28/28 —
 the only per-region difference observed is service availability (e.g.
 Pinpoint has no endpoint in 5 regions), never the wire shape.
 
+`capture` also runs `SUCCESS_PROBES` — read-only list/describe calls that
+return 200 on a fresh account — recording `"kind": "success"` captures
+across all six wire families (success ops that collide with an error
+probe name land in `__ok`-suffixed files). `report` skips them with a
+note (microburst forwards success bodies verbatim — there is nothing to
+render), while `conform`/`diff` compare them on status + Content-Type +
+envelope shape, which is where emulator success-shape conformance pays
+off. Success goldens land in `fidelity/captures/` on the next real-AWS
+capture run.
+
 ### Multi-SDK matrix
 
 `tools/sdk-matrix/` runs real SDK clients — **boto3, aws-sdk-js-v3,

@@ -16,25 +16,43 @@ from pathlib import Path
 import pytest
 from botocore.session import Session
 
-from microburst.fidelity import check_capture
+from microburst.fidelity import _is_success, check_capture
 
 _CAPTURES_DIR = Path(__file__).resolve().parent.parent / "fidelity" / "captures"
-_CAPTURES = sorted(_CAPTURES_DIR.glob("*.json"))
-_FIELDS = ("status_ok", "code_ok", "ct_ok", "shape_ok")
-
-_session = Session()
 
 
 def _load(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
+# success-path captures share the directory but microburst never renders
+# 2xx bodies — the gate only makes sense for error captures.
+_CAPTURES = [
+    p for p in sorted(_CAPTURES_DIR.glob("*.json"))
+    if not _is_success(_load(p))
+]
+_FIELDS = ("status_ok", "code_ok", "ct_ok", "shape_ok")
+
+_session = Session()
+
+
 def test_capture_floor():
     """A deleted capture must shrink the gate loudly, not silently."""
     assert len(_CAPTURES) >= 28, (
-        f"only {len(_CAPTURES)} captures in {_CAPTURES_DIR} — "
+        f"only {len(_CAPTURES)} error captures in {_CAPTURES_DIR} — "
         "the golden set shrank; restore the deleted probe(s)"
     )
+
+
+def test_gate_parametrizes_error_captures_only():
+    """Every parametrized golden must be an error capture — success
+    probes (status < 400 / ``kind: "success"``) are compared by
+    conform/diff, never rendered."""
+    assert _CAPTURES, "gate parametrizes nothing"
+    for p in _CAPTURES:
+        cap = _load(p)
+        assert not _is_success(cap), f"{p.name} is a success capture"
+        assert cap.get("sdk_error_code"), f"{p.name} has no error code"
 
 
 @pytest.mark.parametrize(
