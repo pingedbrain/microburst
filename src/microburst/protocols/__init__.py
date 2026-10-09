@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Callable
+from xml.sax.saxutils import escape
 
 from microburst.models import (
     error_http_status,
@@ -25,7 +26,8 @@ from microburst.models import (
 
 __all__ = ["get_serializer", "register_serializer", "render_error"]
 
-# render(code, message, request_id, service) -> (headers, body)
+# render(code, message, request_id, service, fields=None, resource=None)
+#   -> (headers, body)
 _SERIALIZERS: dict[str, Callable] = {}
 
 _JSON_VERSION_RE = re.compile(r"x-amz-json-1\.(\d)")
@@ -42,6 +44,29 @@ def register_serializer(*protocol_names: str) -> Callable:
 
 def get_serializer(protocol: str | None) -> Callable | None:
     return _SERIALIZERS.get(protocol or "")
+
+
+def xml_members(fields: dict | None) -> str:
+    """Error-shape members as XML elements: dicts nest, lists repeat the
+    parent tag, scalars are escaped text."""
+    if not fields:
+        return ""
+    return "".join(_xml_member(k, v) for k, v in fields.items())
+
+
+def _xml_member(name: str, value) -> str:
+    if isinstance(value, dict):
+        inner = "".join(_xml_member(k, v) for k, v in value.items())
+        return f"<{name}>{inner}</{name}>"
+    if isinstance(value, (list, tuple)):
+        return "".join(_xml_member(name, v) for v in value)
+    if value is None:
+        text = ""
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
+        text = str(value)
+    return f"<{name}>{escape(text)}</{name}>"
 
 
 # Importing the package populates the registry.
@@ -68,6 +93,8 @@ def render_error(
     protocol: str | None = None,
     query_compat: bool = False,
     request_ct: str | None = None,
+    fields: dict | None = None,
+    resource: str | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     """Serialize an AWS-looking error. Returns (status, headers, body).
 
@@ -78,6 +105,9 @@ def render_error(
     query-compatible clients, which drives the SDK's parsed error code.
     ``request_ct`` is the request's own Content-Type — for json services the
     observed ``x-amz-json-1.x`` version wins over the model's ``jsonVersion``.
+    ``fields`` are extra error-shape members rendered protocol-natively
+    (json members, XML elements); ``resource`` feeds wire-standard fields
+    like S3's ``Resource``.
     """
     protocol = protocol or (get_protocol(service) if service else None)
 
@@ -107,7 +137,10 @@ def render_error(
         message = code
 
     renderer = get_serializer(protocol) or _DEFAULT_RENDERER
-    headers, body = renderer(bare_code, message, _request_id(), service)
+    headers, body = renderer(
+        bare_code, message, _request_id(), service,
+        fields=fields, resource=resource,
+    )
     if protocol == "json" and request_ct:
         m = _JSON_VERSION_RE.search(request_ct)
         if m:

@@ -37,7 +37,12 @@ _CORAL_LAYER_CODES = frozenset({
 
 @register_serializer("json")
 def render(
-    code: str, message: str, request_id: str, service: str | None = None
+    code: str,
+    message: str,
+    request_id: str,
+    service: str | None = None,
+    fields: dict | None = None,
+    resource: str | None = None,
 ) -> tuple[dict[str, str], bytes]:
     version = service_metadata(service).get("jsonVersion", "1.0")
     headers = {
@@ -50,5 +55,8 @@ def render(
         else _TYPE_PREFIX.get(service or "", "")
     )
     member = error_message_member(service, code) if service else "message"
-    body = json.dumps({"__type": f"{prefix}{code}", member: message}).encode()
+    payload = {"__type": f"{prefix}{code}", member: message}
+    if fields:
+        payload.update(fields)
+    body = json.dumps(payload).encode()
     return headers, body

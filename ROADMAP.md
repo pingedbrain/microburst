@@ -62,8 +62,11 @@ query-marker + required-header disambiguation.
   auth codes (`ExpiredTokenException`, `UnrecognizedClientException`, …)
   get `com.amazon.coral.service#` — observed on the sfn capture. The map
   grows as captures cover more services.
-- Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
-  DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
+- ~~Protocol-specific fields in error bodies~~ ✅ — `error.fields` merges
+  arbitrary members per protocol (json/rest-json body, XML elements on
+  query/ec2/rest-xml, CBOR map); S3-family errors auto-carry `Resource`,
+  `RequestId`, and `HostId` matching `x-amz-id-2`; route53/cloudfront emit
+  the `ErrorResponse`+xmlns envelope verified on the route53 capture.
 
 ## Effects (`effects/`)
 

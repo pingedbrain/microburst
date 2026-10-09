@@ -165,6 +165,8 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
     code: SlowDown           # omit → samples a plausible modeled exception
     status: 503              # omit → modeled/curated AWS status
     message: "slow down"
+    fields:                  # extra error-shape members, rendered per
+      BucketName: my-bucket  # protocol (json members / XML elements)
   latency: {min: 500, max: 2000}   # ms; or a bare number, or a distribution:
                                    # {dist: gaussian, mean: 500, stddev: 100,
                                    #  min: 100, max: 2000}

@@ -20,34 +20,44 @@ _CONTENT_TYPE = {"sesv2": "application/x-amz-json-1.1"}
 
 @register_serializer("rest-json")
 def render(
-    code: str, message: str, request_id: str, service: str | None = None
+    code: str,
+    message: str,
+    request_id: str,
+    service: str | None = None,
+    fields: dict | None = None,
+    resource: str | None = None,
 ) -> tuple[dict[str, str], bytes]:
     # AWS carries the code in the x-amzn-ErrorType header, not the body —
     # the body holds the error shape's members (Lambda: {"Type","Message"},
     # API Gateway: {"message"}). Body-code services like Glacier are the
     # exception (verified live).
     if service in _BODY_CODE:
+        payload = {"code": code, "message": message, "type": "Client"}
+        if fields:
+            payload.update(fields)
         return {
             "Content-Type": "application/json",
             "x-amzn-RequestId": request_id,
-        }, json.dumps({"code": code, "message": message, "type": "Client"}).encode()
+        }, json.dumps(payload).encode()
 
     headers = {
         "Content-Type": _CONTENT_TYPE.get(service or "", "application/json"),
         "x-amzn-RequestId": request_id,
         "x-amzn-ErrorType": code,
     }
-    fields: dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     shape = error_shape(service, code) if service else None
     members = getattr(shape, "members", None) if shape is not None else None
     if members:
         for name in members:
             if name.lower() == "message":
-                fields[name] = message
+                payload[name] = message
             elif name.lower() == "type":
-                fields[name] = "User"
-        if not fields:
-            fields["message"] = message
+                payload[name] = "User"
+        if not payload:
+            payload["message"] = message
     else:
-        fields["message"] = message
-    return headers, json.dumps(fields).encode()
+        payload["message"] = message
+    if fields:
+        payload.update(fields)
+    return headers, json.dumps(payload).encode()

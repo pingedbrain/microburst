@@ -63,6 +63,76 @@ def test_json_observed_ct_wins_over_model_version():
     assert headers["Content-Type"] == "application/x-amz-json-1.1"
 
 
+def test_rest_xml_route53_error_response_envelope():
+    """Real AWS capture: route53 errors are ``<?xml?><ErrorResponse
+    xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><Error><Type>
+    Sender</Type><Code/><Message/></Error><RequestId/></ErrorResponse>`` —
+    not S3's flat <Error>."""
+    _s, headers, body = render_error(
+        "route53", "NoSuchHostedZone", "No hosted zone", 404,
+    )
+    assert headers["Content-Type"] == "text/xml"
+    text = body.decode()
+    assert text.startswith('<?xml version="1.0"?>')
+    root = ET.fromstring(text)
+    assert root.tag == (
+        "{https://route53.amazonaws.com/doc/2013-04-01/}ErrorResponse"
+    )
+    err = root.find("{https://route53.amazonaws.com/doc/2013-04-01/}Error")
+    assert err.findtext(
+        "{https://route53.amazonaws.com/doc/2013-04-01/}Type"
+    ) == "Sender"
+    assert err.findtext(
+        "{https://route53.amazonaws.com/doc/2013-04-01/}Code"
+    ) == "NoSuchHostedZone"
+
+
+def test_rest_xml_s3_auto_fields_and_user_fields():
+    """S3 errors carry Resource/RequestId/HostId on the wire; HostId equals
+    the x-amz-id-2 header. Rule ``fields`` merge as sibling elements."""
+    _s, headers, body = render_error(
+        "s3", "NoSuchKey", "gone", 404,
+        fields={"Key": "a.txt"}, resource="/bkt/a.txt",
+    )
+    root = ET.fromstring(body)
+    assert root.tag == "Error"
+    assert root.findtext("Resource") == "/bkt/a.txt"
+    assert root.findtext("Key") == "a.txt"
+    assert root.findtext("RequestId") == headers["x-amz-request-id"]
+    assert root.findtext("HostId") == headers["x-amz-id-2"]
+
+
+def test_error_fields_render_per_protocol():
+    """fields become json members, <Error> children (query), or flat
+    elements (rest-xml)."""
+    _s, _h, body = render_error(
+        "dynamodb", "TransactionCanceledException", "cancelled", 400,
+        fields={"CancellationReasons": [{"Code": "Throttling"}]},
+    )
+    assert json.loads(body)["CancellationReasons"] == [
+        {"Code": "Throttling"}
+    ]
+
+    _s, _h, body = render_error(
+        "sns", "Throttling", "slow", 400,
+        fields={"Extra": "x", "Nested": {"a": 1}, "Tags": ["t1", "t2"]},
+    )
+    err = ET.fromstring(body).find("Error")
+    assert err.findtext("Extra") == "x"
+    assert err.findtext("Nested/a") == "1"
+    assert [t.text for t in err.findall("Tags")] == ["t1", "t2"]
+
+
+def test_error_fields_must_be_mapping():
+    import pytest
+
+    from microburst.rules import from_dict
+
+    with pytest.raises(ValueError, match="fields"):
+        from_dict({"service": "s3",
+                   "error": {"code": "SlowDown", "fields": "nope"}})
+
+
 def test_query_protocol_xml():
     _status, headers, body = render_error(
         "sns", "Throttling", "Rate exceeded", 400,

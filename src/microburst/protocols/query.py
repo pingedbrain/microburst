@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from xml.sax.saxutils import escape
 
-from microburst.protocols import register_serializer
+from microburst.protocols import register_serializer, xml_members
 
 
 @register_serializer("query", "ec2")
 def render(
-    code: str, message: str, request_id: str, service: str | None = None
+    code: str,
+    message: str,
+    request_id: str,
+    service: str | None = None,
+    fields: dict | None = None,
+    resource: str | None = None,
 ) -> tuple[dict[str, str], bytes]:
     headers = {
         "Content-Type": "text/xml",
@@ -21,6 +26,7 @@ def render(
         f"<Code>{escape(code)}</Code>"
         f"<Message>{escape(message)}</Message>"
         "<Type>Sender</Type>"
+        f"{xml_members(fields)}"
         "</Error>"
         f"<RequestId>{request_id}</RequestId>"
         "</ErrorResponse>"

@@ -61,6 +61,7 @@ class FaultError:
     code: str | None = None      # None → sample from the operation's modeled errors
     status: int | None = None    # None → modeled httpStatusCode, else 400
     message: str | None = None
+    fields: dict | None = None   # extra error-shape members, rendered per protocol
 
 
 @dataclass
@@ -209,6 +210,12 @@ def from_dict(data: dict) -> Rule:
             rule._body_expr = jmespath.compile(rule.body)
         except Exception as e:  # any compile failure → bad rule
             raise ValueError(f"invalid body jmespath {rule.body!r}: {e}") from e
+    if (
+        rule.error is not None
+        and rule.error.fields is not None
+        and not isinstance(rule.error.fields, dict)
+    ):
+        raise ValueError("error.fields must be a mapping of member → value")
     return rule
 
 
@@ -239,6 +246,7 @@ def to_dict(rule: Rule) -> dict:
                 "code": rule.error.code,
                 "status": rule.error.status,
                 "message": rule.error.message,
+                "fields": rule.error.fields,
             }.items()
             if v is not None
         }
@@ -326,6 +334,7 @@ class RuleEngine:
                         code=random.choice(plausible),
                         status=error.status,
                         message=error.message,
+                        fields=error.fields,
                     )
             return Decision(
                 rule=rule,

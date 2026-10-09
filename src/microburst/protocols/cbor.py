@@ -39,12 +39,20 @@ def encode_map_str(pairs: dict[str, str]) -> bytes:
 
 @register_serializer("smithy-rpc-v2-cbor")
 def render(
-    code: str, message: str, request_id: str, service: str | None = None
+    code: str,
+    message: str,
+    request_id: str,
+    service: str | None = None,
+    fields: dict | None = None,
+    resource: str | None = None,
 ) -> tuple[dict[str, str], bytes]:
     headers = {
         "smithy-protocol": "rpc-v2-cbor",
         "Content-Type": "application/cbor",
         "x-amzn-requestid": request_id,
     }
-    body = encode_map_str({"__type": code, "message": message})
+    pairs = {"__type": code, "message": message}
+    if fields:
+        pairs.update({k: "" if v is None else str(v) for k, v in fields.items()})
+    body = encode_map_str(pairs)
     return headers, body

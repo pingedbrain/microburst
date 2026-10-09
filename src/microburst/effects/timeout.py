@@ -22,5 +22,6 @@ async def apply(ctx, decision: Decision) -> web.Response | None:
         protocol=ctx.protocol,
         query_compat=ctx.query_compat,
         request_ct=ctx.headers.get("Content-Type"),
+        resource=ctx.path,
     )
     return web.Response(status=status, headers=headers, body=body)

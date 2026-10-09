@@ -10,6 +10,11 @@ All notable changes to this project will be documented here. Format follows
 
 - **Fired-log time range** — `GET /_microburst/fired` accepts `?since=` /
   `?until=` (epoch seconds or ISO-8601) alongside the field filters.
+- **`error.fields`** — extra error-shape members on injected errors,
+  rendered per protocol (json members, `<Error>` children on query/ec2,
+  flat elements on rest-xml, CBOR map entries). S3-family errors now also
+  carry the wire-standard `Resource`, `RequestId`, and `HostId` (matching
+  the `x-amz-id-2` header).
 
 ### Fixed
 
@@ -25,6 +30,10 @@ All notable changes to this project will be documented here. Format follows
 - **Timeout envelope matches the wire protocol** — `timeout_ms` responses
   now honor the observed protocol, query-compat flag, and request
   Content-Type instead of always emitting the default json envelope.
+- **Route53/CloudFront error envelope** — text-xml rest-xml services now
+  emit `<?xml?><ErrorResponse xmlns="…"><Error><Type>Sender</Type>…
+  <RequestId/></ErrorResponse>` (verified against the route53 capture)
+  instead of S3's flat `<Error>`.
 
 ## [0.7.0] - 2026-10-08
 
