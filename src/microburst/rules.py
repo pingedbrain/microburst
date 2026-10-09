@@ -16,6 +16,7 @@ import time
 import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl
 
@@ -84,6 +85,8 @@ class Rule:
     reset: bool = False
     response: dict | None = None   # post-forward response mutation spec
     ttl_s: float | None = None     # rule expires N seconds after creation
+    active_at: float | None = None # epoch — rule starts matching then
+    until: float | None = None     # epoch — rule stops matching then
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
     created_ts: float = field(default_factory=time.time)
@@ -94,7 +97,12 @@ class Rule:
     def matches(self, info: RequestContext) -> bool:
         if self.times is not None and self.fired_count >= self.times:
             return False
-        if self.ttl_s is not None and time.time() - self.created_ts >= self.ttl_s:
+        now = time.time()
+        if self.ttl_s is not None and now - self.created_ts >= self.ttl_s:
+            return False
+        if self.active_at is not None and now < self.active_at:
+            return False
+        if self.until is not None and now >= self.until:
             return False
         if self.service and self.service != "*" and self.service != info.service:
             return False
@@ -140,6 +148,31 @@ class Decision:
     timeout_ms: float | None
     reset: bool
     response_fault: ResponseFault | None = None  # built at fire time
+
+
+def _ts_or_none(value) -> float | None:
+    """Epoch seconds, an ISO-8601 string, or a datetime (yaml.safe_load
+    already converts timestamp-looking scalars). Naive values resolve in
+    the host's local timezone; a trailing ``Z`` means UTC."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError(f"invalid timestamp {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        iso = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            return datetime.fromisoformat(iso).timestamp()
+        except ValueError as e:
+            raise ValueError(f"invalid timestamp {value!r}") from e
+    raise ValueError(f"invalid timestamp {value!r}")
 
 
 def _latency_from_dict(data: dict) -> Latency:
@@ -204,6 +237,8 @@ def from_dict(data: dict) -> Rule:
         reset=bool(data.get("reset", False)),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
+        active_at=_ts_or_none(data.get("active_at")),
+        until=_ts_or_none(data.get("until")),
     )
     if rule.body is not None:
         try:
@@ -269,6 +304,12 @@ def to_dict(rule: Rule) -> dict:
         out["ttl_s"] = rule.ttl_s
         remaining = rule.ttl_s - (time.time() - rule.created_ts)
         out["ttl_remaining_s"] = max(0.0, round(remaining, 1))
+    if rule.active_at is not None:
+        out["active_at"] = rule.active_at
+        out["starts_in_s"] = max(0.0, round(rule.active_at - time.time(), 1))
+    if rule.until is not None:
+        out["until"] = rule.until
+        out["ends_in_s"] = max(0.0, round(rule.until - time.time(), 1))
     out["fired_count"] = rule.fired_count
     return out
 
@@ -385,6 +426,34 @@ PRESETS: dict[str, dict] = {
         "service": "*",
         "probability": 0.2,
         "error": {"code": "InternalError", "status": 500},
+    },
+    # SigV4 front-layer faults — statuses pinned because rest protocols
+    # default to 503 while auth errors are 400/403 on the real wire.
+    "expired-token": {
+        "service": "*",
+        "error": {
+            "code": "ExpiredTokenException",
+            "status": 400,
+            "message": "The security token included in the request is expired",
+        },
+    },
+    "clock-skew": {
+        "service": "*",
+        "error": {
+            "code": "RequestTimeTooSkewed",
+            "status": 403,
+            "message": "The difference between the request time and the "
+            "current time is too large.",
+        },
+    },
+    "bad-signature": {
+        "service": "*",
+        "error": {
+            "code": "SignatureDoesNotMatch",
+            "status": 403,
+            "message": "The request signature we calculated does not match "
+            "the signature you provided. Check your key and signing method.",
+        },
     },
 }
 
@@ -505,6 +574,16 @@ def _response_fault(spec: dict | None) -> ResponseFault | None:
         event_error_message=_event_error(spec).get("message"),
         event_error_after=int(_event_error(spec).get("after_frames", 3)),
         event_mutations=_event_mutations(spec),
+        set_headers=(
+            {str(k): str(v) for k, v in spec["set_headers"].items()}
+            if isinstance(spec.get("set_headers"), dict)
+            else {}
+        ),
+        strip_headers=(
+            tuple(str(h) for h in spec["strip_headers"])
+            if isinstance(spec.get("strip_headers"), list)
+            else ()
+        ),
     )
 
 

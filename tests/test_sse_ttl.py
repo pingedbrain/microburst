@@ -32,6 +32,129 @@ def test_ttl_remaining_reported():
     assert 0 < d["ttl_remaining_s"] <= 60.0
 
 
+def test_active_at_defers_rule():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "active_at": time.time() + 0.05,
+          "error": {"code": "SlowDown"}}]
+    )
+    ctx = RequestContext(service="s3", operation="GetObject")
+    assert engine.decide(ctx) is None
+    time.sleep(0.07)
+    assert engine.decide(ctx) is not None
+
+
+def test_until_expires_rule():
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "s3", "until": time.time() + 0.05,
+          "error": {"code": "SlowDown"}}]
+    )
+    ctx = RequestContext(service="s3", operation="GetObject")
+    assert engine.decide(ctx) is not None
+    time.sleep(0.07)
+    assert engine.decide(ctx) is None
+
+
+def test_window_reported_in_to_dict():
+    engine = RuleEngine()
+    (rule,) = engine.set_rules(
+        [{"service": "s3", "active_at": time.time() + 60,
+          "until": time.time() + 120}]
+    )
+    d = to_dict(rule)
+    assert 0 < d["starts_in_s"] <= 60.0
+    assert 0 < d["ends_in_s"] <= 120.0
+
+
+def test_window_accepts_iso_and_datetime():
+    from datetime import datetime, timezone
+
+    from microburst.rules import from_dict
+
+    iso = "2999-01-01T00:00:00Z"
+    epoch = datetime(2999, 1, 1, tzinfo=timezone.utc).timestamp()
+    assert from_dict({"active_at": iso}).active_at == epoch
+    naive_dt = datetime.fromisoformat("2999-01-01")  # naive → host-local tz
+    assert from_dict({"until": naive_dt}).until == naive_dt.timestamp()
+    assert from_dict({"active_at": 1234.5}).active_at == 1234.5
+
+
+def test_sigv4_presets_pin_auth_status():
+    """Auth faults are 400/403 on the real wire — rest protocols would
+    default to 503 without the pin."""
+    from microburst.rules import PRESETS
+
+    engine = RuleEngine()
+    expected = {
+        "expired-token": ("ExpiredTokenException", 400),
+        "clock-skew": ("RequestTimeTooSkewed", 403),
+        "bad-signature": ("SignatureDoesNotMatch", 403),
+    }
+    for name, (code, status) in expected.items():
+        engine.set_rules([dict(PRESETS[name])])
+        d = engine.decide(
+            RequestContext(service="s3", operation="GetObject")
+        )
+        assert d is not None and d.error.code == code
+        assert d.error.status == status
+
+
+def test_watch_rules_reloads_on_change(tmp_path):
+    import asyncio
+
+    import yaml
+
+    from microburst.app import _watch_rules
+    from microburst.core.pipeline import Microburst
+
+    sq = Microburst("http://x", rules=[{"service": "s3"}], resign=False)
+    cfg = tmp_path / "chaos.yml"
+    cfg.write_text(yaml.dump({"rules": [{"service": "sqs"}]}))
+
+    async def go():
+        task = asyncio.create_task(
+            _watch_rules(sq, str(cfg), interval=0.02)
+        )
+        await asyncio.sleep(0.05)
+        cfg.write_text(yaml.dump({"rules": [{"service": "dynamodb"}]}))
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if sq.engine.rules[0].service == "dynamodb":
+                break
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    assert sq.engine.rules[0].service == "dynamodb"
+
+
+def test_watch_rules_keeps_rules_on_bad_file(tmp_path):
+    import asyncio
+
+    from microburst.app import _watch_rules
+    from microburst.core.pipeline import Microburst
+
+    sq = Microburst("http://x", rules=[{"service": "s3"}], resign=False)
+    cfg = tmp_path / "chaos.yml"
+    cfg.write_text("rules:\n  - service: sqs\n")
+
+    async def go():
+        task = asyncio.create_task(
+            _watch_rules(sq, str(cfg), interval=0.02)
+        )
+        await asyncio.sleep(0.05)
+        cfg.write_text("rules: [{\n")  # broken yaml mid-edit
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    assert sq.engine.rules[0].service == "s3"
+
+
 def test_fired_filters(upstub, microburst_server, aws_env):
     _, proxy = microburst_server(
         upstub[1].url,

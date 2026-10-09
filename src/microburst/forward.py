@@ -15,7 +15,7 @@ import os
 import re
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -154,6 +154,10 @@ class ResponseFault:
     - ``event_mutations``: frame-level event-stream surgery — drop,
       repayload, corrupt, inject, or cut frames at given indices
       (``response.event_frames`` in the DSL).
+    - ``set_headers``/``strip_headers``: mutate response headers —
+      wrong Content-Type on a 200, stripped ``x-amz-*`` headers —
+      exercises SDK parse paths body corruption doesn't reach.
+      Applied after the built-in mutations so explicit intent wins.
     """
     truncate_bytes: int | None = None
     truncate_frac: float | None = None
@@ -165,6 +169,8 @@ class ResponseFault:
     event_error_message: str | None = None
     event_error_after: int = 3
     event_mutations: tuple[eventstream.Mutation, ...] = ()
+    set_headers: dict[str, str] = field(default_factory=dict)
+    strip_headers: tuple[str, ...] = ()
 
     def resolve(self, content_length: int | None) -> None:
         """Turn frac fields into absolute byte counts once the upstream
@@ -436,6 +442,22 @@ async def _stream_to_client(
                 # describes it (streams usually lack one anyway)
                 resp_headers.pop("Content-Length", None)
                 chunks = eventstream.mutate_frames(chunks, event_mutations)
+        # Explicit header mutation wins over the built-in adjustments:
+        # strip first, then set (a set wins over a strip of the same
+        # name — order in the spec is meaningless, intent isn't).
+        if mutator.strip_headers:
+            strip = {h.lower() for h in mutator.strip_headers}
+            resp_headers = {
+                k: v for k, v in resp_headers.items()
+                if k.lower() not in strip
+            }
+        if mutator.set_headers:
+            replaced = {k.lower() for k in mutator.set_headers}
+            resp_headers = {
+                k: v for k, v in resp_headers.items()
+                if k.lower() not in replaced
+            }
+            resp_headers.update(mutator.set_headers)
 
     resp = web.StreamResponse(status=status, headers=resp_headers)
     await resp.prepare(request)

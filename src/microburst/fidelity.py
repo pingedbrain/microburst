@@ -520,61 +520,88 @@ def conform(aws_dir: Path, emu_dir: Path) -> int:
     """Diff an emulator's captures against the real-AWS goldens.
 
     For every probe present in both trees we compare what an SDK would
-    see: HTTP status, Content-Type, and the parsed ``Error.Code`` — the
-    trio that drives retry classification. Body top-level keys and
-    request-id header presence are reported as secondary signals.
-    Writes ``CONFORM.md`` next to the emulator captures.
+    see: HTTP status, Content-Type, the parsed ``Error.Code``, and the
+    envelope shape — the quartet that drives retry classification and
+    parsing. Writes ``CONFORM.md`` next to the emulator captures.
     """
+    return _compare(
+        aws_dir, emu_dir, a_label="AWS", b_label="emu",
+        title="# Conformance report — emulator vs real AWS",
+        verb="conform", out_name="CONFORM.md",
+    )
+
+
+def diff(dir_a: Path, dir_b: Path) -> int:
+    """Compare two capture sets directly — emulator A vs B, a candidate
+    patch vs the last capture, or a fresh AWS run vs the goldens —
+    without routing through the committed set. Writes ``DIFF.md`` into
+    ``dir_b``. Same fields as ``conform``."""
+    return _compare(
+        dir_a, dir_b, a_label="a", b_label="b",
+        title="# Capture diff",
+        verb="match", out_name="DIFF.md",
+    )
+
+
+def _compare(
+    dir_a: Path,
+    dir_b: Path,
+    a_label: str,
+    b_label: str,
+    title: str,
+    verb: str,
+    out_name: str,
+) -> int:
     from botocore.session import Session
 
     session = Session()
-    aws_caps = {
+    a_caps = {
         p.name: json.loads(p.read_text())
-        for p in sorted((aws_dir / "captures").glob("*.json"))
+        for p in sorted((dir_a / "captures").glob("*.json"))
     }
-    emu_caps = {
+    b_caps = {
         p.name: json.loads(p.read_text())
-        for p in sorted((emu_dir / "captures").glob("*.json"))
+        for p in sorted((dir_b / "captures").glob("*.json"))
     }
     rows = []
-    for name, aws in aws_caps.items():
-        emu = emu_caps.get(name)
-        if emu is None:
+    for name, cap_a in a_caps.items():
+        cap_b = b_caps.get(name)
+        if cap_b is None:
             rows.append((name, "—", "missing", "—", "—", "—", "⬜",
                          False, None, None))
             continue
-        aws_parsed, _ = _parse_capture(aws, session)
-        emu_parsed, _ = _parse_capture(emu, session)
-        aws_code = (aws_parsed.get("Error") or {}).get("Code")
-        emu_code = (emu_parsed.get("Error") or {}).get("Code")
-        aws_ct = aws["headers"].get("Content-Type", "").split(";")[0]
-        emu_ct = emu["headers"].get("Content-Type", "").split(";")[0]
-        shape_ok = _envelope_signature(aws.get("body")) == _envelope_signature(
-            emu.get("body")
-        )
+        a_parsed, _ = _parse_capture(cap_a, session)
+        b_parsed, _ = _parse_capture(cap_b, session)
+        a_code = (a_parsed.get("Error") or {}).get("Code")
+        b_code = (b_parsed.get("Error") or {}).get("Code")
+        a_ct = cap_a["headers"].get("Content-Type", "").split(";")[0]
+        b_ct = cap_b["headers"].get("Content-Type", "").split(";")[0]
+        shape_ok = _envelope_signature(
+            cap_a.get("body")
+        ) == _envelope_signature(cap_b.get("body"))
         ok = (
-            aws["status"] == emu["status"]
-            and aws_code == emu_code
-            and aws_ct == emu_ct
+            cap_a["status"] == cap_b["status"]
+            and a_code == b_code
+            and a_ct == b_ct
             and shape_ok
         )
         rows.append((
-            name, aws["status"], emu["status"], aws_code, emu_code,
-            f"{aws_ct} → {emu_ct}" if aws_ct != emu_ct else emu_ct,
+            name, cap_a["status"], cap_b["status"], a_code, b_code,
+            f"{a_ct} → {b_ct}" if a_ct != b_ct else b_ct,
             "✅" if ok else "❌", shape_ok,
-            aws.get("body"), emu.get("body"),
+            cap_a.get("body"), cap_b.get("body"),
         ))
 
     n_pass = sum(1 for r in rows if r[6] == "✅")
     lines = [
-        "# Conformance report — emulator vs real AWS", "",
-        ("Diffs each probe's emulator response against the committed "
-         "real-AWS capture on the fields an SDK actually reads: HTTP "
-         "status, parsed `Error.Code`, Content-Type — plus the envelope "
-         "shape (XML element paths, `__type` namespacing)."),
+        title, "",
+        (f"Diffs each probe's {b_label} response against the {a_label} "
+         "capture on the fields an SDK actually reads: HTTP status, "
+         "parsed `Error.Code`, Content-Type — plus the envelope shape "
+         "(XML element paths, `__type` namespacing)."),
         "",
-        ("| probe | AWS status | emu status | AWS code | emu code | CT | "
-         "shape | |"),
+        (f"| probe | {a_label} status | {b_label} status | {a_label} code | "
+         f"{b_label} code | CT | shape | |"),
         "|---|---|---|---|---|---|---|---|",
     ]
     for name, rs, es, rc, ec, ct, v, sh_ok, _ab, _eb in rows:
@@ -584,7 +611,7 @@ def conform(aws_dir: Path, emu_dir: Path) -> int:
         )
     lines += [
         "",
-        (f"**{n_pass}/{len(rows)} probes conform "
+        (f"**{n_pass}/{len(rows)} probes {verb} "
          "(status + parsed code + Content-Type + envelope shape).**"),
         "",
     ]
@@ -593,12 +620,12 @@ def conform(aws_dir: Path, emu_dir: Path) -> int:
         lines += ["## Envelope shape diffs", ""]
         for name, _rs, _es, _rc, _ec, _ct, _v, _s, ab, eb in mismatched:
             lines.append(f"### {name}")
-            lines.append(f"- AWS:   `{_envelope_signature(ab)}`")
-            lines.append(f"- emu:   `{_envelope_signature(eb)}`")
+            lines.append(f"- {a_label}:   `{_envelope_signature(ab)}`")
+            lines.append(f"- {b_label}:   `{_envelope_signature(eb)}`")
             lines.append("")
-    out = emu_dir / "CONFORM.md"
+    out = dir_b / out_name
     out.write_text("\n".join(lines))
-    print(f"conformance → {out}  ({n_pass}/{len(rows)} conform)")
+    print(f"conformance → {out}  ({n_pass}/{len(rows)} match)")
     return 0 if n_pass == len(rows) and rows else 1
 
 
@@ -614,8 +641,12 @@ def fidelity_main(argv: list[str]) -> int:
         "command",
         choices=[
             "capture", "report", "snapshot", "backfill-provenance",
-            "conform",
+            "conform", "diff",
         ],
+    )
+    ap.add_argument(
+        "paths", nargs="*",
+        help="capture dirs for `diff`: A B (writes DIFF.md into B)",
     )
     ap.add_argument(
         "--services", default=None,
@@ -658,4 +689,9 @@ def fidelity_main(argv: list[str]) -> int:
         emu = Path(args.emu_dir) if args.emu_dir else out_dir
         aws = Path(args.aws_dir) if args.aws_dir else DEFAULT_DIR
         return conform(aws, emu)
+    if args.command == "diff":
+        if len(args.paths) != 2:
+            print("fidelity diff needs two capture dirs: A B")
+            return 2
+        return diff(Path(args.paths[0]), Path(args.paths[1]))
     return backfill_provenance(out_dir)

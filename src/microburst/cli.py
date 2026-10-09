@@ -39,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="YAML config file (upstream, port, rules)",
     )
     parser.add_argument(
+        "--watch", action="store_true",
+        help="reload rules when the --config file changes",
+    )
+    parser.add_argument(
         "--resign", action="store_true", default=None,
         help="re-sign requests with AWS_* env credentials (auto for "
         "amazonaws.com upstreams)",
@@ -123,11 +127,17 @@ def main(argv: list[str] | None = None) -> int:
             "record" if args.record else "replay",
         )
 
+    if args.watch and not args.config:
+        print("--watch needs --config (the file to watch)", file=sys.stderr)
+        return 2
+
     microburst = Microburst(
         upstream, rules=rules, resign=resign, http2=args.http2,
         cassette=cassette,
     )
-    app = make_app(microburst)
+    app = make_app(
+        microburst, watch_config=args.config if args.watch else None
+    )
 
     print(f"microburst listening on http://{host}:{port} → {upstream}", flush=True)
     print(f"control API: http://{host}:{port}/_microburst/health", flush=True)

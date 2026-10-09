@@ -27,6 +27,7 @@ def fat_upstream():
             status=200,
             body=b"x" * (64 * 1024),
             content_type="application/octet-stream",
+            headers={"ETag": '"abc"', "x-amz-meta-test": "1"},
         )
 
     app.router.add_route("*", "/{tail:.*}", handle)
@@ -84,6 +85,27 @@ def test_bandwidth_shaping_paces_stream(fat_upstream, microburst_server):
     elapsed = time.monotonic() - start
     assert len(body) == 64 * 1024
     assert elapsed >= 1.5  # generous floor; theory says ~2s
+
+
+def test_set_and_strip_headers(fat_upstream, microburst_server):
+    """set_headers/strip_headers mutate the response envelope — wrong CT
+    on a 200 exercises SDK parse paths body corruption doesn't reach."""
+    _, proxy = microburst_server(
+        fat_upstream.url,
+        rules=[_s3_rule(
+            set_headers={"Content-Type": "text/plain", "X-Chaos": "yes"},
+            strip_headers=["ETag", "x-amz-meta-test"],
+        )],
+    )
+    req = urllib.request.Request(
+        proxy.url + "/bucket/key", headers={"Authorization": S3_AUTH}
+    )
+    resp = urllib.request.urlopen(req, timeout=15)
+    assert resp.headers["Content-Type"] == "text/plain"
+    assert resp.headers["X-Chaos"] == "yes"
+    assert "ETag" not in resp.headers
+    assert "x-amz-meta-test" not in resp.headers
+    assert len(resp.read()) == 64 * 1024
 
 
 def test_response_fault_logged(fat_upstream, microburst_server):

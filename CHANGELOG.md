@@ -25,6 +25,21 @@ All notable changes to this project will be documented here. Format follows
   top-level keys + `__type` namespace prefix. Catches wire-shape drift
   botocore's parser tolerates (wrong envelope root, missing `xmlns`,
   `RequestID` vs `RequestId`).
+- **`fidelity diff`** — compare any two capture sets directly
+  (`microburst fidelity diff A B`), same fields as `conform` with neutral
+  labels; writes `DIFF.md` into B.
+- **SigV4 fault presets** — `expired-token` (400), `clock-skew`
+  (`RequestTimeTooSkewed` 403), `bad-signature` (`SignatureDoesNotMatch`
+  403): auth-layer failures as one-word presets.
+- **Response header mutation** — `response: {set_headers:,
+  strip_headers:}` rewrites or drops response headers (wrong
+  Content-Type on a 200, stripped `x-amz-*`) — exercises SDK parse paths
+  body corruption can't reach.
+- **Scheduled rule windows** — `active_at`/`until` (epoch, ISO-8601, or
+  YAML datetime) bound when a rule starts and stops matching;
+  `starts_in_s`/`ends_in_s` appear in `GET /rules`.
+- **Rules hot-reload** — `--watch` reloads the `--config` file's rules
+  on every save; a broken file keeps the previous ruleset.
 
 ### Fixed
 

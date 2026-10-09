@@ -1,6 +1,6 @@
 # Live-AWS fidelity report
 
-Captured 2026-10-09 15:09 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+Captured 2026-10-09 15:22 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
 
 | service | operation | error code | AWS status | ours | AWS CT | ours | verdict |
 |---|---|---|---|---|---|---|---|

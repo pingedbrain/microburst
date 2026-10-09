@@ -161,6 +161,8 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
                              # "this bucket always fails" without RNG seeds)
   times: 3                   # fire at most N times, then pass through
   ttl_s: 120                 # rule expires N seconds after creation
+  active_at: "2026-01-01T00:00:00Z"  # start matching at this time
+  until: 1893456000          # stop matching then (epoch or ISO-8601)
   error:
     code: SlowDown           # omit → samples a plausible modeled exception
     status: 503              # omit → modeled/curated AWS status
@@ -200,6 +202,9 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
         cut: 0.5                   #  emit half the frame, then EOF
       - at: 8
         error: {code: ThrottlingException}  # terminal :error frame
+    set_headers:                   # mutate response headers — wrong CT on
+      Content-Type: text/plain     # a 200, added x-amz-*, etc.
+    strip_headers: [ETag]          # drop response headers entirely
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
@@ -209,7 +214,8 @@ surface.
 ### Presets
 
 `ddb-throttle` · `flaky-s3` · `slow-lambda` · `kms-outage` · `sqs-backlog` ·
-`regional-failover` · `network-jitter` · `gateway-storm`
+`regional-failover` · `network-jitter` · `gateway-storm` · `expired-token` ·
+`clock-skew` · `bad-signature`
 
 ## Control API
 
@@ -223,7 +229,8 @@ surface.
 | GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |
 
 Load rules at startup with `microburst --config chaos.yml`
-(see `examples/chaos.yml`).
+(see `examples/chaos.yml`); add `--watch` to hot-reload the file on every
+save — the file replaces the whole ruleset each reload.
 
 ## Real AWS upstreams
 
@@ -268,6 +275,9 @@ microburst fidelity snapshot                  # model digests (no creds)
 # emulator conformance — same probes, diffed against the AWS goldens
 microburst fidelity capture --endpoint-url http://localhost:4566 --dir ms/
 microburst fidelity conform --emu ms/ --aws fidelity/   # → CONFORM.md
+
+# compare any two capture sets directly
+microburst fidelity diff ms/ other-emulator/            # → DIFF.md
 ```
 
 The evidence stays fresh without anyone owning AWS credentials:
@@ -280,11 +290,15 @@ envelopes are also checked against AWS-authored wire expectations on
 every test run.
 
 The committed report ([fidelity/REPORT.md](fidelity/REPORT.md)) shows
-28/28 probes matching AWS on status, parsed `Error.Code`, and
-Content-Type — including the details that matter to SDK retry behavior:
+27/28 probes matching AWS on status, parsed `Error.Code`, Content-Type,
+**and envelope shape** (XML element paths, `__type` namespacing) —
+including the details that matter to SDK retry behavior:
 `x-amz-json-1.1` content types, `com.amazonaws.*`-namespaced `__type`,
 rest-json `x-amzn-ErrorType` headers, SQS's `AWS.SimpleQueueService.*`
 query-compat namespace, Route53's `text/xml`, and empty-body HEAD errors.
+The one documented divergence is Athena's unmodeled `ErrorCode`/
+`AthenaErrorCode` taxonomy — the values aren't derivable from the
+service model.
 
 The envelopes are also region-invariant: the same probe set captured in
 every enabled region of a real account (17 regions) conforms 28/28 —
@@ -325,6 +339,29 @@ python demo.py   # orders pipeline → microburst → MiniStack, scripted fault 
 You'll see DynamoDB puts retry through injected throttling, SQS publishes
 degrade under latency, S3 reads ride out `SlowDown`, and the pipeline
 recover when faults clear — plus the fired-fault ledger at the end.
+A real run (endpoints configurable via `MINISTACK_URL`/`MICROBURST_URL`):
+
+```text
+⚡ FAULT INJECTED → dynamodb PutItem throttles 35%
+    2.1s  order-6    put     56ms ↻ retried ×1 (throttled)  publish   2ms  s3 ✓
+    6.8s  order-15   put    757ms ↻ retried ×4 (throttled)  publish   2ms  s3 ✓
+
+⚡ FAULT INJECTED → S3 GetObject SlowDown 50%
+   17.7s  order-21   put    356ms ↻ retried ×3   publish  2111ms (slow)  s3 ↻ ×1
+
+⚡ FAULTS CLEARED → recovery
+   20.4s  order-23   put      2ms  publish      2ms   s3 ✓     2ms
+
+━━━ fired log (what microburst actually did) ━━━
+   17× dynamodb:PutItem → error:ProvisionedThroughputExceededException
+    3× s3:GetObject → error:SlowDown
+    5× sqs:SendMessage → latency:1009–2192ms
+
+━━━ outcome ━━━
+  orders processed:      31
+  ddb throttled+retried: 11 (SDK absorbed — app never saw an error)
+  ddb hard failures:     0
+```
 
 ## Contributing & community
 

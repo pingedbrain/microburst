@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from microburst.fidelity import _rebind_region, conform
+from microburst.fidelity import _rebind_region, conform, diff
 
 
 def test_rebind_region_rewrites_embedded_arn_regions():
@@ -91,3 +91,30 @@ def test_conform_missing_probe_is_reported(tmp_path):
     assert conform(aws, emu) == 1
     md = (emu / "CONFORM.md").read_text()
     assert "missing" in md
+
+
+def test_diff_compares_two_capture_sets(tmp_path):
+    """`fidelity diff A B` — same fields as conform, neutral labels,
+    DIFF.md written into B."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    _cap(a, "dynamodb_describe_table.json")
+    _cap(b, "dynamodb_describe_table.json")
+    assert diff(a, b) == 0
+    md = (b / "DIFF.md").read_text()
+    assert "1/1 probes match" in md
+    assert "| a status | b status |" in md
+
+
+def test_diff_flags_shape_drift(tmp_path):
+    """Envelopes botocore parses identically still diff on shape."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    _cap(a, "dynamodb_describe_table.json")
+    _cap(
+        b, "dynamodb_describe_table.json",
+        # bare __type — botocore parses the same code, but the wire
+        # shape differs (namespace prefix absent)
+        body='{"__type":"ResourceNotFoundException","message":"x"}',
+    )
+    assert diff(a, b) == 1
+    md = (b / "DIFF.md").read_text()
+    assert "Envelope shape diffs" in md

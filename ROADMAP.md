@@ -98,12 +98,14 @@ query-marker + required-header disambiguation.
 - ~~Latency distributions (gaussian, spike)~~ ✅ — `latency: {dist: gaussian,
   mean, stddev, min?, max?}` and `{dist: spike, min, max, spike_ms, spike_p}`;
   uniform stays the default.
-- **SigV4 fault presets** — `RequestTimeTooSkewed`, `SignatureDoesNotMatch`,
-  expired-token style auth failures as first-class presets (today they need
-  hand-rolled `error:` rules). `[size:S]` `[good-first-issue]`
-- **Response header mutation** — `response: {set_headers:, strip_headers:}`
-  — wrong Content-Type on a 200, stripped `x-amz-*` headers: exercises SDK
-  parse failure paths that body corruption doesn't reach. `[size:S]`
+- ~~SigV4 fault presets~~ ✅ — `expired-token` (400),
+  `clock-skew` (`RequestTimeTooSkewed` 403), `bad-signature`
+  (`SignatureDoesNotMatch` 403) — statuses pinned since rest protocols
+  default to 503 while auth errors are 400/403 on the wire.
+- ~~Response header mutation~~ ✅ — `response: {set_headers:,
+  strip_headers:}` — wrong Content-Type on a 200, stripped `x-amz-*`
+  headers: exercises SDK parse failure paths body corruption doesn't
+  reach. Applied after built-in mutations so explicit intent wins.
 - **Request-side faults** — truncated/slow request *uploads*
   (client→proxy direction): exercises SDK write paths, not just read
   paths. `[size:M]`
@@ -127,9 +129,9 @@ query-marker + required-header disambiguation.
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
   the request identity; same resource always lands on the same side of p,
   and failure tiers nest monotonically.
-- **Scheduled activation windows** — `active_at`/`until` so a rule can arm
-  for a future window (complements `ttl_s`, which only expires).
-  `[size:S]` `[good-first-issue]`
+- ~~Scheduled activation windows~~ ✅ — `active_at`/`until` (epoch,
+  ISO-8601, or YAML datetime) bound when a rule starts/stops matching;
+  `starts_in_s`/`ends_in_s` surfaced in `GET /rules`.
 
 ## Control plane (`control.py`)
 
@@ -143,9 +145,9 @@ query-marker + required-header disambiguation.
 - ~~OTel span emission per injected fault~~ ✅ — `microburst.fault` spans
   via optional `opentelemetry-api` (`pip install microburst[otel]`);
   no-op when absent.
-- **Rules file hot-reload** — watch the `--rules` file and reload on
-  change, so a chaos.yml edit takes effect without restarting the proxy.
-  `[size:S]` `[good-first-issue]`
+- ~~Rules file hot-reload~~ ✅ — `--watch` polls the `--config` file's
+  mtime and replaces the ruleset on change; a broken file keeps the
+  previous rules (logged, not fatal).
 
 ## Data plane (`forward.py`)
 
@@ -211,9 +213,10 @@ query-marker + required-header disambiguation.
   (ec2 `Response/Errors` envelope, missing query `xmlns`, coral
   `Message` casing, pinpoint `RequestID`) — all fixed except athena's
   unmodeled taxonomy.
-- **`fidelity diff`** — compare two capture sets directly (emulator A vs
-  B, or against a fresh AWS run) without routing through the committed
-  goldens. `[size:S]`
+- ~~`fidelity diff`~~ ✅ — `microburst fidelity diff A B` compares any two
+  capture sets (same fields as conform, neutral labels, writes `DIFF.md`
+  into B). Verified: us-west-2 vs ap-southeast-2 AWS captures are
+  shape-identical 28/28.
 - **SDK matrix expansion** — aws-sdk-rust and .NET cells; the matrix
   already caught a real detection bug once. `[size:M]`
 
@@ -246,9 +249,9 @@ query-marker + required-header disambiguation.
   failure scenarios (throttled writes, timeout cascade, poison queue,
   S3 SlowDown, stream cuts, expired token, generic HTTP) with configs
   kept parseable by a test.
-- **Scripted end-to-end demo** — `app → microburst → MiniStack`
-  walkthrough (the "watch boto3 actually retry" asset) as a runnable
-  script + recorded output for the README. `[size:S]`
+- ~~Scripted end-to-end demo~~ ✅ — `demo.py` (endpoints via
+  `MINISTACK_URL`/`MICROBURST_URL`) + a real recorded run embedded in
+  the README: 31 orders, 11 SDK-absorbed throttles, fired-log summary.
 
 ## Explicitly out of scope (for now)
 
