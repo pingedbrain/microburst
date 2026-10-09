@@ -8,12 +8,12 @@ publish = false
 # near-daily; these correspond to the ~2026-10-01/02 release (>= 7 days old
 # at time of pinning). Cargo.lock is committed for full reproducibility.
 [dependencies]
-aws-sdk-dynamodb = "=1.126.0"
-aws-sdk-lambda = "=1.146.0"
-aws-sdk-sqs = "=1.109.0"
-aws-sdk-s3 = "=1.148.0"
+aws-sdk-dynamodb = { version = "=1.130.0", default-features = false, features = ["rt-tokio", "default-https-client", "behavior-version-latest"] }
+aws-sdk-lambda = { version = "=1.149.0", default-features = false, features = ["rt-tokio", "default-https-client", "behavior-version-latest"] }
+aws-sdk-sqs = { version = "=1.114.0", default-features = false, features = ["rt-tokio", "default-https-client", "behavior-version-latest"] }
+aws-sdk-s3 = { version = "=1.152.0", default-features = false, features = ["rt-tokio", "default-https-client", "behavior-version-latest"] }
 # interceptor API for per-attempt counting (mirrors go-v2's finalize MW)
-aws-smithy-runtime-api = { version = "=1.18.0", features = ["client"] }
+aws-smithy-runtime-api = { version = "=1.19.0", features = ["client"] }
 aws-smithy-types = "=1.8.1"
 tokio = { version = "~1", features = ["macros", "rt"] }
 serde_json = "~1"
