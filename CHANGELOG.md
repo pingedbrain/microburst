@@ -6,6 +6,8 @@ All notable changes to this project will be documented here. Format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-09
+
 ### Added
 
 - **Measured service latency presets** — `latency: {preset: <service>}`
