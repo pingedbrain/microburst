@@ -26,7 +26,7 @@ from microburst.core.context import BODY_UNSET, RequestContext
 from microburst.models import operation_error_names
 
 if TYPE_CHECKING:
-    from microburst.forward import ResponseFault
+    from microburst.forward import RequestFault, ResponseFault
 
 _ids = itertools.count(1)
 
@@ -84,6 +84,7 @@ class Rule:
     timeout_ms: float | None = None
     reset: bool = False
     response: dict | None = None   # post-forward response mutation spec
+    request: dict | None = None    # pre-forward client-upload fault spec
     ttl_s: float | None = None     # rule expires N seconds after creation
     active_at: float | None = None # epoch — rule starts matching then
     until: float | None = None     # epoch — rule stops matching then
@@ -148,6 +149,7 @@ class Decision:
     timeout_ms: float | None
     reset: bool
     response_fault: ResponseFault | None = None  # built at fire time
+    request_fault: RequestFault | None = None    # built at fire time
 
 
 def _ts_or_none(value) -> float | None:
@@ -236,6 +238,7 @@ def from_dict(data: dict) -> Rule:
         timeout_ms=data.get("timeout_ms"),
         reset=bool(data.get("reset", False)),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
+        request=data.get("request") if isinstance(data.get("request"), dict) else None,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
         active_at=_ts_or_none(data.get("active_at")),
         until=_ts_or_none(data.get("until")),
@@ -300,6 +303,8 @@ def to_dict(rule: Rule) -> dict:
         out["reset"] = True
     if rule.response:
         out["response"] = rule.response
+    if rule.request:
+        out["request"] = rule.request
     if rule.ttl_s is not None:
         out["ttl_s"] = rule.ttl_s
         remaining = rule.ttl_s - (time.time() - rule.created_ts)
@@ -384,6 +389,7 @@ class RuleEngine:
                 timeout_ms=rule.timeout_ms,
                 reset=rule.reset,
                 response_fault=_response_fault(rule.response),
+                request_fault=_request_fault(rule.request),
             )
         return None
 
@@ -557,6 +563,33 @@ class FiredEvent:
         }
 
 
+def _request_fault(spec: dict | None) -> RequestFault | None:
+    """Build a fresh RequestFault per fire — resolve() mutates it in place."""
+    if spec is None:
+        return None
+    from microburst.forward import RequestFault
+
+    slow = spec.get("slow_upload")
+    cut = spec.get("cut_upload")
+    return RequestFault(
+        rate_kbps=(
+            _float_or_none(slow.get("rate_kbps"))
+            if isinstance(slow, dict)
+            else None
+        ),
+        after_bytes=(
+            _int_or_none(cut.get("after_bytes"))
+            if isinstance(cut, dict)
+            else None
+        ),
+        after_frac=(
+            _float_or_none(cut.get("after_frac"))
+            if isinstance(cut, dict)
+            else None
+        ),
+    )
+
+
 def _response_fault(spec: dict | None) -> ResponseFault | None:
     """Build a fresh ResponseFault per fire — resolve() mutates it in place."""
     if spec is None:
@@ -679,6 +712,16 @@ def describe(decision: Decision) -> str:
         parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
     if decision.reset:
         parts.append("reset")
+    xf = decision.request_fault
+    if xf is not None:
+        # request-side faults act on the upload — they run before the
+        # forward, so they describe before the response: mutations
+        if xf.rate_kbps:
+            parts.append(f"request:slow_upload:{xf.rate_kbps:.0f}kbps")
+        if xf.after_bytes is not None:
+            parts.append(f"request:cut_upload:{xf.after_bytes}B")
+        elif xf.after_frac is not None:
+            parts.append("request:cut_upload")
     rf = decision.response_fault
     if rf is not None:
         if rf.truncate_bytes is not None or rf.truncate_frac is not None:

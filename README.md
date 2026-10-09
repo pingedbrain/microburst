@@ -77,7 +77,7 @@ docker compose -f examples/docker-compose.yml up
 ```
 
 Runnable failure scenarios — throttled writers, timeout vs retry-budget,
-poison queues, stream cuts, generic HTTP deps — live in
+poison queues, stream cuts, mid-upload resets, generic HTTP deps — live in
 [`examples/`](examples/README.md).
 
 ## GitHub Action
@@ -205,11 +205,34 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
     set_headers:                   # mutate response headers — wrong CT on
       Content-Type: text/plain     # a 200, added x-amz-*, etc.
     strip_headers: [ETag]          # drop response headers entirely
+  request:                         # pre-forward: fault the client→proxy upload
+    slow_upload: {rate_kbps: 8}    # read the client body at ≤8 KiB/s — stalls
+                                   # the SDK's write path (exercises write/
+                                   # socket timeouts); the body still
+                                   # arrives whole upstream
+    cut_upload: {after_bytes: 1024}  # after N bytes of the upload are
+                                   # consumed, reset the client connection —
+                                   # ECONNRESET mid-PUT, nothing forwarded
+                                   # (or after_frac: 0.5)
 ```
 
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
 succeed"* verifies your retry path end-to-end instead of just proving errors
 surface.
+
+Fault ordering: a fired rule applies `request:` faults first — the upload
+happens before any response can exist, so a `cut_upload` link dies before
+an `error:` envelope could be sent — then latency → reset → timeout →
+error, then the forward, then `response:` mutations on the way back.
+
+One fidelity note on `request:` faults: microburst buffers request bodies
+when detection needs them (non-streaming ops ≤4 MiB, `body:` matchers,
+cassette mode). A buffered upload has already finished on the client's
+side, so `slow_upload` can't stall its write — the pacing moves to the
+upstream send — and `cut_upload` lands on the client's read path (same
+observable as `reset: true`). Streaming uploads (S3 `PutObject`,
+`UploadPart`, payloads >4 MiB) get the real thing: write-path
+backpressure and a true mid-upload reset.
 
 ### Presets
 

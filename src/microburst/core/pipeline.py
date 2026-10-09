@@ -18,7 +18,7 @@ from aiohttp import web
 from microburst.control import handle_control
 from microburst.detection import detect, should_buffer
 from microburst.effects import apply_decision
-from microburst.forward import Upstream
+from microburst.forward import Upstream, consume_upload
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.tracing import fault_span
 
@@ -109,13 +109,26 @@ class Microburst:
             with fault_span(
                 decision.rule.id, ctx.service, ctx.operation, action
             ):
+                # Request-side faults act on the client→proxy upload, so
+                # they run first — a cut link dies before any response
+                # (error envelope or otherwise) could exist.
+                data = None
+                if decision.request_fault is not None:
+                    data, cut = await consume_upload(
+                        request, body, decision.request_fault
+                    )
+                    if cut:
+                        # socket already dead — nothing can be written
+                        return web.Response(status=200)
                 fault = await apply_decision(request, ctx, decision)
                 if fault is not None:
                     return fault
                 # terminal effects didn't fire → forward, possibly
                 # mutating the response on the way back
                 return await self.upstream.relay(
-                    request, body, mutator=decision.response_fault
+                    request, body,
+                    mutator=decision.response_fault,
+                    data=data,
                 )
 
         return await self.upstream.relay(request, body)

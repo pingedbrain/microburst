@@ -8,6 +8,14 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **Request-side faults** — `request:` rule block faults the
+  client→proxy upload: `slow_upload: {rate_kbps}` paces the proxy's read
+  of the request body (backpressures the SDK's write path on streaming
+  uploads; on bodies pre-buffered for detection the pacing shifts to the
+  upstream send), and `cut_upload: {after_bytes|after_frac}` resets the
+  client connection after N consumed bytes without forwarding — a true
+  mid-upload ECONNRESET on streaming uploads, a read-path reset on
+  buffered ones. New example: `examples/08-upload-cut`.
 - **Fired-log time range** — `GET /_microburst/fired` accepts `?since=` /
   `?until=` (epoch seconds or ISO-8601) alongside the field filters.
 - **`fidelity capture --region`** — probe any AWS region; probe kwargs

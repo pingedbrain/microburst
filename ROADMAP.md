@@ -106,9 +106,12 @@ query-marker + required-header disambiguation.
   strip_headers:}` — wrong Content-Type on a 200, stripped `x-amz-*`
   headers: exercises SDK parse failure paths body corruption doesn't
   reach. Applied after built-in mutations so explicit intent wins.
-- **Request-side faults** — truncated/slow request *uploads*
-  (client→proxy direction): exercises SDK write paths, not just read
-  paths. `[size:M]`
+- ~~Request-side faults~~ ✅ — `request: {slow_upload: {rate_kbps},
+  cut_upload: {after_bytes|after_frac}}` faults the client→proxy
+  upload: paced reads stall the SDK's write path; `cut_upload` resets
+  the client connection after N consumed bytes without forwarding (a
+  true mid-upload reset for streaming uploads — S3 PutObject/UploadPart;
+  pre-buffered bodies cut on the read path instead).
 - **Service latency presets** — feed measured per-service latency
   distributions from captures into named presets
   (`latency: {preset: dynamodb}`) so faults feel like the real service's

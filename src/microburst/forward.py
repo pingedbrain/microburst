@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import time
+from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -183,6 +184,116 @@ class ResponseFault:
             self.abort_bytes = int(content_length * self.abort_frac)
 
 
+@dataclass
+class RequestFault:
+    """Client→proxy upload mutation. All fields optional; combine freely.
+
+    - ``rate_kbps`` (``request.slow_upload.rate_kbps``): throttle the
+      proxy's read of the client body. On a still-streaming upload this
+      backpressures the SDK's write path; on a pre-buffered body the
+      write already finished, so the pacing shifts to the upstream send
+      (the upstream observes the slow client).
+    - ``after_bytes``/``after_frac`` (``request.cut_upload``): after the
+      proxy has consumed that much of the client upload, reset the client
+      connection WITHOUT forwarding — no response is ever produced. On a
+      still-streaming upload the SDK sees ECONNRESET mid-PUT; on a
+      pre-buffered body the write already finished, so the reset lands on
+      its read path (same observable as ``reset: true``).
+
+    Fidelity caveat — aiohttp does not pre-buffer request bodies, but
+    microburst does whenever detection needs one (non-streaming ops
+    ≤4 MiB, body matchers, cassette mode). Only streaming uploads (S3
+    PutObject/UploadPart, large payloads) can be cut truly mid-write.
+    """
+    rate_kbps: float | None = None
+    after_bytes: int | None = None
+    after_frac: float | None = None
+
+    def resolve(self, content_length: int | None) -> None:
+        """Turn ``after_frac`` into an absolute byte count once the
+        request body size is known."""
+        if content_length is None:
+            return
+        if self.after_frac is not None and self.after_bytes is None:
+            self.after_bytes = int(content_length * self.after_frac)
+
+
+async def consume_upload(
+    request: web.Request,
+    body: bytes | None,
+    fault: RequestFault,
+) -> tuple[bytes | AsyncIterable[bytes] | None, bool]:
+    """Apply the client→proxy half of a fired rule.
+
+    Returns ``(data, cut)``. ``data`` is the payload source ``relay()``
+    should send upstream (``None`` → unchanged default: the buffered body
+    or ``request.content``). ``cut`` means the client connection was
+    reset — the caller must not forward and any response it returns dies
+    on the dead socket.
+
+    A cut fires only if the proxy's read of the client body actually
+    crosses ``after_bytes`` before EOF — a body shorter than the
+    threshold uploads completely and forwards. Because a streaming cut
+    can't know the threshold was crossed until it reads, it buffers what
+    it consumes; a threshold past the body end therefore reads the whole
+    upload into memory (same outcome as the normal buffered path).
+    """
+    if body is not None:
+        # Body was pre-buffered for detection — the client's write is
+        # already done. The buffered length is the truth (chunked uploads
+        # carry no Content-Length to resolve a frac against).
+        fault.resolve(len(body))
+        if fault.after_bytes is not None and len(body) >= fault.after_bytes:
+            _abort_client(request)
+            return None, True
+        if fault.rate_kbps:
+            return _pace(_byte_chunks(body), fault.rate_kbps), False
+        return None, False
+
+    if not request.can_read_body:
+        return None, False  # no body — request faults no-op
+
+    fault.resolve(request.content_length)
+    if fault.after_bytes is not None:
+        # Receive the bytes the fault models — a real client→proxy link
+        # failure means the client wrote them before the reset, so the
+        # proxy's read must get that far. The upstream never sees them.
+        collected = bytearray()
+        async for chunk in request.content.iter_chunked(8192):
+            if fault.rate_kbps:
+                await asyncio.sleep(len(chunk) / (fault.rate_kbps * 1024))
+            collected += chunk
+            if len(collected) >= fault.after_bytes:
+                _abort_client(request)
+                return None, True
+        return bytes(collected), False  # body ended before the threshold
+
+    if fault.rate_kbps:
+        return _pace(request.content.iter_chunked(8192), fault.rate_kbps), False
+    return None, False
+
+
+def _abort_client(request: web.Request) -> None:
+    """Kill the client connection — the write the caller returns will
+    never reach the socket."""
+    transport = getattr(request, "transport", None)
+    if transport is not None:
+        transport.abort()
+
+
+async def _byte_chunks(data: bytes, size: int = 8192):
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
+
+
+async def _pace(chunks, rate_kbps: float):
+    """Re-yield a chunk stream throttled to ``rate_kbps`` — mirrors the
+    response-side bandwidth pacing (sleep per chunk before passing it on)."""
+    async for chunk in chunks:
+        await asyncio.sleep(len(chunk) / (rate_kbps * 1024))
+        yield chunk
+
+
 class Upstream:
     """Client for the upstream endpoint: session lifecycle + relay.
 
@@ -250,7 +361,12 @@ class Upstream:
         request: web.Request,
         body: bytes | None,
         mutator: ResponseFault | None = None,
+        data: bytes | AsyncIterable[bytes] | None = None,
     ) -> web.StreamResponse:
+        """``data`` overrides the outbound payload source (bytes or an
+        async iterable — e.g. a throttled upload stream from
+        ``consume_upload``); ``body`` stays the metadata body used for
+        cassette keys and SigV4 payload hashing."""
         cass_key = None
         if self.cassette is not None:
             cass_key = Cassette.key_for(
@@ -277,8 +393,12 @@ class Upstream:
                     once(),
                 )
         if self.hx is not None:
-            return await self._relay_httpx(request, body, mutator, cass_key)
-        return await self._relay_aiohttp(request, body, mutator, cass_key)
+            return await self._relay_httpx(
+                request, body, mutator, cass_key, data
+            )
+        return await self._relay_aiohttp(
+            request, body, mutator, cass_key, data
+        )
 
     async def _relay_httpx(
         self,
@@ -286,6 +406,7 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None,
         cass_key: str | None,
+        data: bytes | AsyncIterable[bytes] | None,
     ) -> web.StreamResponse:
         assert self.hx is not None  # relay() only routes here when set
         url = self.base_url + request.rel_url.raw_path_qs
@@ -308,10 +429,14 @@ class Upstream:
                 headers = signed
 
         async def content_stream():
-            if body is not None:
-                yield body
-            else:
+            payload = data if data is not None else body
+            if payload is None:
                 async for chunk in request.content.iter_any():
+                    yield chunk
+            elif isinstance(payload, (bytes, bytearray)):
+                yield bytes(payload)
+            else:
+                async for chunk in payload:
                     yield chunk
 
         req = self.hx.build_request(
@@ -347,6 +472,7 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None,
         cass_key: str | None,
+        data: bytes | AsyncIterable[bytes] | None,
     ) -> web.StreamResponse:
         assert self.session is not None
         url = self.base_url + request.rel_url.raw_path_qs
@@ -368,13 +494,15 @@ class Upstream:
             if signed is not None:
                 headers = signed
 
-        data = body if body is not None else request.content
+        payload = data if data is not None else (
+            body if body is not None else request.content
+        )
         try:
             upstream = await self.session.request(
                 request.method,
                 url,
                 headers=headers,
-                data=data,
+                data=payload,
                 allow_redirects=False,
             )
         except aiohttp.ClientError as exc:

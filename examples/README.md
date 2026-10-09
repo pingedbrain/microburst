@@ -27,6 +27,7 @@ curl http://localhost:9999/_microburst/fired
 | 05 | [stream-cut](05-stream-cut/) | Event streams killed mid-frame — does your consumer handle a truncated `SelectObjectContent`? |
 | 06 | [expired-token](06-expired-token/) | `ExpiredTokenException` once mid-session — does the app refresh credentials or die? |
 | 07 | [http-dependency](07-http-dependency/) | Any HTTP dependency (not just AWS): latency, resets, timeouts — "the payment API got slow". |
+| 08 | [upload-cut](08-upload-cut/) | The link dies mid-`PutObject` — does the SDK retry connection errors on its write path? |
 
 Also in this directory:
 
