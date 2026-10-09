@@ -351,8 +351,12 @@ probe name land in `__ok`-suffixed files). `report` skips them with a
 note (microburst forwards success bodies verbatim — there is nothing to
 render), while `conform`/`diff` compare them on status + Content-Type +
 envelope shape, which is where emulator success-shape conformance pays
-off. Success goldens land in `fidelity/captures/` on the next real-AWS
-capture run.
+off. The 25 committed success goldens are real AWS captures with
+`content_scrubbed` — leaf values replaced by type-shaped placeholders
+(resource names, ids, dates) while the element structure stays verbatim.
+Caveat: success shapes are data-dependent — an empty `Buckets` list vs
+a populated one is a real path-set diff, so emulator conformance on
+success bodies reflects both format *and* cardinality.
 
 ### Multi-SDK matrix
 
