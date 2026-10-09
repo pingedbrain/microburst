@@ -117,6 +117,9 @@ query-marker + required-header disambiguation.
   a measured per-service baseline (real AWS us-east-1 probing, 2026-02:
   service-side residual = p50 − ~155ms network floor, gaussian with
   inferred stddev). `tools/latency_probe.py` refreshes the data.
+- **gRPC / event-stream request faults** — request faults today cover
+  flat bodies; bidirectional streams (S3 Select client→server, gRPC
+  streams) have no upload-fault path. `[size:M]`
 
 ## Rules (`rules.py`)
 
@@ -152,6 +155,10 @@ query-marker + required-header disambiguation.
 - ~~Rules file hot-reload~~ ✅ — `--watch` polls the `--config` file's
   mtime and replaces the ruleset on change; a broken file keeps the
   previous rules (logged, not fatal).
+- **Stats endpoint** — `/_microburst/stats`: the fired log says *what*
+  fired; stats say how much each fault costs — per-rule hit counts,
+  upstream latency distribution, error rates. `/metrics` counts;
+  `/stats` would explain. `[size:S]`
 
 ## Data plane (`forward.py`)
 
@@ -225,6 +232,20 @@ query-marker + required-header disambiguation.
   counting, `=` pins) and AWSSDK-v4 .NET (`DelegatingHandler` attempt
   counting) cells; 20/20 pass with zero serializer changes. SDK-specific
   HEAD-error parse documented (rust → `null`, .NET → `ServiceUnavailable`).
+- **Happy-path captures** — all 28 probes are error responses; capturing
+  *successful* wire responses (List/Describe against real resources)
+  would let `conform`/`diff` check success envelopes too, not just
+  failure shapes. `[size:M]`
+- ~~**Fidelity regression gate in CI**~~ ✅ — `test_fidelity_gate.py`
+  runs `check_capture` (the pure comparison extracted from `report`)
+  over every committed capture and asserts status + parsed
+  `Error.Code` + Content-Type + envelope shape all match; the count is
+  derived from `fidelity/captures/` with a `>= 28` floor so deletions
+  fail loudly. pytest coverage makes it automatic — `ci.yml` already
+  runs the suite.
+- **Conformance CI vs other emulators** — run `conform` against
+  LocalStack/other AWS-compatible endpoints in CI and publish the
+  compat table; the harness already exists. `[size:M]`
 
 ## Ecosystem
 
@@ -236,6 +257,13 @@ query-marker + required-header disambiguation.
   `AWS_ENDPOINT_URL`. Optional `config:` mounts a rules file.
 - MiniStack-native integration — `/_ministack/chaos`-compatible API so the
   same faults work without a separate proxy hop.
+- **Protocol-agnostic core + PostgreSQL wire** — issue #6: extract the
+  `detect → decide → effect` pipeline so a wire protocol is a module
+  (frame parser + operation detector + error renderer), then a
+  `--protocol postgres` TCP mode emitting SQLSTATE-correct
+  ErrorResponses (`40001`, `40P01`, `55P03`, `57P01`) that real drivers
+  retry on. Redis `-MOVED`/`-ASK` and gRPC trailers are the natural
+  follow-ons. `[size:L]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`

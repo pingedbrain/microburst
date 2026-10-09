@@ -353,12 +353,93 @@ def _envelope_signature(body: str | None) -> dict:
     }
 
 
-def report(out_dir: Path) -> int:
-    """Diff every capture against what microburst would have rendered."""
+def check_capture(cap: dict, session) -> dict[str, Any]:
+    """Diff one capture against what microburst would render for it —
+    the pure comparison behind ``report()``.
+
+    Renders the capture's (service, error code) through ``render_error``
+    and compares the quartet an SDK actually reads: HTTP status, the
+    ``Error.Code`` botocore's parser recovers from each body, the
+    Content-Type media type, and the envelope shape (XML element paths /
+    JSON ``__type`` namespacing). No I/O, no printing — returns the four
+    verdict flags plus the field detail needed to explain a mismatch, so
+    tests can assert on the same numbers the report table shows.
+    """
     from botocore.parsers import create_parser
-    from botocore.session import Session
 
     from microburst.protocols import render_error
+
+    svc, op = cap["service"], cap["operation"]
+    code = cap["sdk_error_code"]
+    real_status, real_ct = cap["status"], cap["headers"].get("Content-Type", "")
+    real_body = cap.get("body") or ""
+
+    model = session.get_service_model(cap.get("model_service") or svc)
+    protocol = model.protocol
+    # migrated services speak query-compat JSON on the wire even when the
+    # model says cbor — use the wire evidence, same as detection does.
+    if "x-amzn-query-error" in cap["headers"] or (
+        real_ct.startswith("application/x-amz-json")
+        and protocol == "smithy-rpc-v2-cbor"
+    ):
+        protocol = "json"
+
+    ours_status, ours_headers, ours_body = render_error(
+        cap.get("model_service") or svc, code, "(fidelity)",
+        protocol=protocol if isinstance(protocol, str) else None,
+    )
+    if cap.get("method") == "HEAD":
+        ours_body = b""
+    ours_ct = ours_headers.get("Content-Type", "")
+
+    parser = create_parser(protocol)
+    # lowercased header keys — botocore's dict lookup is case-sensitive;
+    # real transports hand it a case-insensitive mapping.
+    ours_parsed = parser.parse(
+        {"status_code": ours_status,
+         "headers": {k.lower(): v for k, v in ours_headers.items()},
+         "body": ours_body}, None)
+    real_parsed = parser.parse(
+        {"status_code": real_status,
+         "headers": {k.lower(): v for k, v in cap["headers"].items()},
+         "body": real_body.encode() if real_body else b""}, None)
+    ours_code = (ours_parsed.get("Error") or {}).get("Code")
+    real_code = (real_parsed.get("Error") or {}).get("Code")
+
+    ours_body_text = ours_body.decode()
+    return {
+        "service": svc,
+        "operation": op,
+        "code": code,
+        "real_status": real_status,
+        "ours_status": ours_status,
+        "real_ct": real_ct,
+        "ours_ct": ours_ct,
+        "status_ok": ours_status == real_status,
+        "code_ok": ours_code == real_code,
+        "ct_ok": ours_ct.split(";")[0] == real_ct.split(";")[0],
+        "shape_ok": _envelope_signature(real_body)
+        == _envelope_signature(ours_body_text),
+        "detail": {
+            "real_keys": _top_keys(real_body),
+            "ours_keys": _top_keys(ours_body_text),
+            "real_sig": _envelope_signature(real_body),
+            "ours_sig": _envelope_signature(ours_body_text),
+            "real_rid_headers": sorted(
+                h for h in cap["headers"]
+                if "request" in h.lower() or "id" in h.lower()),
+            "ours_rid_headers": sorted(
+                h for h in ours_headers
+                if "request" in h.lower() or "id" in h.lower()),
+            "real_body": real_body[:400],
+            "ours_body": ours_body_text[:400],
+        },
+    }
+
+
+def report(out_dir: Path) -> int:
+    """Diff every capture against what microburst would have rendered."""
+    from botocore.session import Session
 
     capture_dir = out_dir / "captures"
     report_path = out_dir / "REPORT.md"
@@ -366,68 +447,19 @@ def report(out_dir: Path) -> int:
     rows = []
     for path in sorted(capture_dir.glob("*.json")):
         cap = json.loads(path.read_text())
-        svc, op = cap["service"], cap["operation"]
-        code = cap["sdk_error_code"]
-        real_status, real_ct = cap["status"], cap["headers"].get("Content-Type", "")
-        real_body = cap.get("body") or ""
-
-        model = session.get_service_model(cap.get("model_service") or svc)
-        protocol = model.protocol
-        # migrated services speak query-compat JSON on the wire even when the
-        # model says cbor — use the wire evidence, same as detection does.
-        if "x-amzn-query-error" in cap["headers"] or (
-            real_ct.startswith("application/x-amz-json")
-            and protocol == "smithy-rpc-v2-cbor"
-        ):
-            protocol = "json"
-
-        ours_status, ours_headers, ours_body = render_error(
-            cap.get("model_service") or svc, code, "(fidelity)",
-            protocol=protocol if isinstance(protocol, str) else None,
-        )
-        if cap.get("method") == "HEAD":
-            ours_body = b""
-        ours_ct = ours_headers.get("Content-Type", "")
-
-        parser = create_parser(protocol)
-        # lowercased header keys — botocore's dict lookup is case-sensitive;
-        # real transports hand it a case-insensitive mapping.
-        ours_parsed = parser.parse(
-            {"status_code": ours_status,
-             "headers": {k.lower(): v for k, v in ours_headers.items()},
-             "body": ours_body}, None)
-        real_parsed = parser.parse(
-            {"status_code": real_status,
-             "headers": {k.lower(): v for k, v in cap["headers"].items()},
-             "body": real_body.encode() if real_body else b""}, None)
-        ours_code = (ours_parsed.get("Error") or {}).get("Code")
-        real_code = (real_parsed.get("Error") or {}).get("Code")
-
-        status_ok = ours_status == real_status
-        code_ok = ours_code == real_code
-        ct_ok = ours_ct.split(";")[0] == real_ct.split(";")[0]
-        shape_ok = _envelope_signature(real_body) == _envelope_signature(
-            ours_body.decode()
-        )
+        r = check_capture(cap, session)
         verdict = (
-            "✅" if (status_ok and code_ok and ct_ok and shape_ok) else "❌"
+            "✅"
+            if (r["status_ok"] and r["code_ok"]
+                and r["ct_ok"] and r["shape_ok"])
+            else "❌"
         )
         rows.append((
-            svc, op, code, real_status, ours_status,
-            real_ct or "—", ours_ct, verdict,
-            status_ok, code_ok, ct_ok, shape_ok,
-            {"real_keys": _top_keys(real_body),
-             "ours_keys": _top_keys(ours_body.decode()),
-             "real_sig": _envelope_signature(real_body),
-             "ours_sig": _envelope_signature(ours_body.decode()),
-             "real_rid_headers": sorted(
-                 h for h in cap["headers"]
-                 if "request" in h.lower() or "id" in h.lower()),
-             "ours_rid_headers": sorted(
-                 h for h in ours_headers
-                 if "request" in h.lower() or "id" in h.lower()),
-             "real_body": real_body[:400],
-             "ours_body": ours_body.decode()[:400]},
+            r["service"], r["operation"], r["code"],
+            r["real_status"], r["ours_status"],
+            r["real_ct"] or "—", r["ours_ct"], verdict,
+            r["status_ok"], r["code_ok"], r["ct_ok"], r["shape_ok"],
+            r["detail"],
         ))
 
     lines = [
