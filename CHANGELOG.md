@@ -8,6 +8,17 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **Measured service latency presets** — `latency: {preset: <service>}`
+  resolves a per-service baseline from real AWS probing (read-only ops,
+  us-east-1, 2026-02, n=8): each preset encodes the service-side residual
+  (p50 minus the ~155ms host→region network floor) as a gaussian `mean`;
+  `stddev = max(5, 0.35·mean)` is a labeled inference, not a measurement.
+  25 presets (`dynamodb`, `s3`, `sqs`, `sns`, `lambda`, `kinesis`, `iam`,
+  `ec2`, `cloudformation`, `ssm`, `secretsmanager`, `sts`, `logs`,
+  `firehose`, `events`, `stepfunctions`, `kms`, `athena`, `route53`,
+  `cloudfront`, `glacier`, `wafv2`, `elbv2`, `apigateway`, `pinpoint`);
+  explicit keys in the same block override preset values. New tool:
+  `tools/latency_probe.py` re-measures the data against a real account.
 - **Request-side faults** — `request:` rule block faults the
   client→proxy upload: `slow_upload: {rate_kbps}` paces the proxy's read
   of the request body (backpressures the SDK's write path on streaming

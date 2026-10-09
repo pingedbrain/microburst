@@ -7,10 +7,17 @@ import json
 import time
 import urllib.request
 
+import pytest
 from test_proxy import _control, _ddb, _put_item
 
 from microburst.core.context import RequestContext
-from microburst.rules import RuleEngine, to_dict
+from microburst.rules import (
+    LATENCY_PRESETS,
+    RuleEngine,
+    describe,
+    from_dict,
+    to_dict,
+)
 
 
 def test_ttl_expires_rule():
@@ -268,9 +275,77 @@ def test_latency_spike():
 
 
 def test_latency_uniform_still_default():
-    from microburst.rules import from_dict
     rule = from_dict({"latency": {"min": 5, "max": 10}})
     assert rule.latency is not None
     assert rule.latency.dist == "uniform"
     samples = [rule.latency.sample() for _ in range(100)]
     assert all(5 <= s <= 10 for s in samples)
+
+
+# -- measured service latency presets -----------------------------------------
+
+
+def test_latency_preset_resolves_measured_params():
+    rule = from_dict({"latency": {"preset": "dynamodb"}})
+    assert rule.latency is not None
+    assert rule.latency.dist == "gaussian"
+    # real AWS us-east-1, 2026-02: ListTables p50 163.4ms − ~155ms
+    # host→region network floor → ~8ms service-side residual
+    assert rule.latency.mean_ms == pytest.approx(8.4)
+    assert rule.latency.stddev_ms >= 5.0
+
+
+def test_latency_preset_explicit_keys_override():
+    rule = from_dict(
+        {"latency": {"preset": "dynamodb", "mean": 120, "max": 500}}
+    )
+    assert rule.latency is not None
+    assert rule.latency.mean_ms == 120.0          # explicit wins
+    assert rule.latency.max_ms == 500.0
+    # untouched keys still come from the preset
+    assert rule.latency.stddev_ms == pytest.approx(
+        LATENCY_PRESETS["dynamodb"]["stddev"]
+    )
+
+
+def test_latency_preset_explicit_dist_overrides():
+    rule = from_dict(
+        {"latency": {"preset": "s3", "dist": "uniform", "min": 10, "max": 20}}
+    )
+    assert rule.latency is not None
+    assert rule.latency.dist == "uniform"
+    assert rule.latency.min_ms == 10.0
+    assert rule.latency.max_ms == 20.0
+
+
+def test_latency_preset_unknown_lists_valid_names():
+    with pytest.raises(ValueError, match="unknown latency preset"):
+        from_dict({"latency": {"preset": "nosuchservice"}})
+    with pytest.raises(ValueError, match="dynamodb"):
+        from_dict({"latency": {"preset": "nosuchservice"}})
+
+
+def test_latency_preset_every_name_resolves():
+    for name in LATENCY_PRESETS:
+        rule = from_dict({"latency": {"preset": name}})
+        assert rule.latency is not None
+        assert rule.latency.mean_ms > 0
+        assert rule.latency.sample() >= 0
+
+
+def test_latency_preset_to_dict_and_describe():
+    rule = from_dict(
+        {"service": "dynamodb", "latency": {"preset": "dynamodb"}}
+    )
+    d = to_dict(rule)
+    assert d["latency"]["preset"] == "dynamodb"
+
+    engine = RuleEngine()
+    engine.set_rules(
+        [{"service": "dynamodb", "latency": {"preset": "dynamodb"}}]
+    )
+    ctx = RequestContext(service="dynamodb", operation="ListTables")
+    decision = engine.decide(ctx)
+    assert decision is not None
+    assert decision.latency_ms >= 0
+    assert "latency:dynamodb" in describe(decision)

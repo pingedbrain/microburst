@@ -43,6 +43,7 @@ class Latency:
     stddev_ms: float = 0.0
     spike_ms: float = 0.0
     spike_p: float = 0.05
+    preset: str | None = None   # LATENCY_PRESETS name, when one was used
 
     def sample(self) -> float:
         if self.dist == "gaussian":
@@ -177,9 +178,65 @@ def _ts_or_none(value) -> float | None:
     raise ValueError(f"invalid timestamp {value!r}")
 
 
+# Measured per-service latency presets — `latency: {preset: dynamodb}`.
+#
+# Evidence label: REAL AWS OBSERVATION. Probed 2026-02 with read-only
+# list/describe operations against live us-east-1 endpoints, n=8 samples
+# per service, SDK-visible wall time (tools/latency_probe.py refreshes the
+# data). Each `mean` is the SERVICE-SIDE RESIDUAL: observed p50 minus the
+# ~155ms host→us-east-1 network floor (min observed across all probes,
+# stepfunctions). The floor is the caller's own network — not microburst's
+# to simulate — so presets encode only what the service adds.
+#
+# Modeling assumption (INFERENCE, not measured): service-side stddev is
+# not recoverable through network noise, so each preset uses
+# stddev = max(5.0, 0.35 * mean). These are order-of-magnitude baselines,
+# not SLAs — re-probe before trusting them for anything precise.
+LATENCY_PRESETS: dict[str, dict] = {
+    "dynamodb":       {"dist": "gaussian", "mean": 8.4,   "stddev": 5.0},
+    "s3":             {"dist": "gaussian", "mean": 30.6,  "stddev": 10.7},
+    "sqs":            {"dist": "gaussian", "mean": 16.1,  "stddev": 5.6},
+    "sns":            {"dist": "gaussian", "mean": 5.2,   "stddev": 5.0},
+    "lambda":         {"dist": "gaussian", "mean": 53.6,  "stddev": 18.8},
+    "kinesis":        {"dist": "gaussian", "mean": 12.5,  "stddev": 5.0},
+    "iam":            {"dist": "gaussian", "mean": 57.2,  "stddev": 20.0},
+    "ec2":            {"dist": "gaussian", "mean": 49.1,  "stddev": 17.2},
+    "cloudformation": {"dist": "gaussian", "mean": 30.3,  "stddev": 10.6},
+    "ssm":            {"dist": "gaussian", "mean": 39.1,  "stddev": 13.7},
+    "secretsmanager": {"dist": "gaussian", "mean": 44.0,  "stddev": 15.4},
+    "sts":            {"dist": "gaussian", "mean": 8.1,   "stddev": 5.0},
+    "logs":           {"dist": "gaussian", "mean": 11.9,  "stddev": 5.0},
+    "firehose":       {"dist": "gaussian", "mean": 13.5,  "stddev": 5.0},
+    "events":         {"dist": "gaussian", "mean": 13.5,  "stddev": 5.0},
+    "stepfunctions":  {"dist": "gaussian", "mean": 5.3,   "stddev": 5.0},
+    "kms":            {"dist": "gaussian", "mean": 6.9,   "stddev": 5.0},
+    "athena":         {"dist": "gaussian", "mean": 43.8,  "stddev": 15.3},
+    "route53":        {"dist": "gaussian", "mean": 25.1,  "stddev": 8.8},
+    "cloudfront":     {"dist": "gaussian", "mean": 14.6,  "stddev": 5.1},
+    "glacier":        {"dist": "gaussian", "mean": 10.1,  "stddev": 5.0},
+    "wafv2":          {"dist": "gaussian", "mean": 25.9,  "stddev": 9.1},
+    "elbv2":          {"dist": "gaussian", "mean": 28.8,  "stddev": 10.1},
+    "apigateway":     {"dist": "gaussian", "mean": 46.6,  "stddev": 16.3},
+    "pinpoint":       {"dist": "gaussian", "mean": 233.7, "stddev": 81.8},
+}
+
+
 def _latency_from_dict(data: dict) -> Latency:
-    dist = data.get("dist", "uniform")
-    num = {k: float(v) for k, v in data.items() if k != "dist"}
+    merged = dict(data)
+    preset_name = merged.pop("preset", None)
+    if preset_name is not None:
+        if preset_name not in LATENCY_PRESETS:
+            raise ValueError(
+                f"unknown latency preset {preset_name!r}; "
+                f"valid: {', '.join(sorted(LATENCY_PRESETS))}"
+            )
+        base = dict(LATENCY_PRESETS[preset_name])
+        # explicit keys override preset defaults — same "explicit intent
+        # wins" convention as response.set_headers
+        base.update(merged)
+        merged = base
+    dist = merged.get("dist", "uniform")
+    num = {k: float(v) for k, v in merged.items() if k != "dist"}
     if dist == "gaussian":
         return Latency(
             dist="gaussian",
@@ -187,6 +244,7 @@ def _latency_from_dict(data: dict) -> Latency:
             stddev_ms=num.get("stddev", 0.0),
             min_ms=num.get("min", 0.0),
             max_ms=num.get("max", 0.0),
+            preset=preset_name,
         )
     if dist == "spike":
         return Latency(
@@ -195,8 +253,13 @@ def _latency_from_dict(data: dict) -> Latency:
             max_ms=num.get("max", 0.0),
             spike_ms=num.get("spike_ms", 0.0),
             spike_p=num.get("spike_p", 0.05),
+            preset=preset_name,
         )
-    return Latency(min_ms=num.get("min", 0.0), max_ms=num.get("max", 0.0))
+    return Latency(
+        min_ms=num.get("min", 0.0),
+        max_ms=num.get("max", 0.0),
+        preset=preset_name,
+    )
 
 
 def from_dict(data: dict) -> Rule:
@@ -291,6 +354,8 @@ def to_dict(rule: Rule) -> dict:
     if rule.latency:
         lat = rule.latency
         d: dict = {"dist": lat.dist}
+        if lat.preset:
+            d["preset"] = lat.preset
         if lat.dist == "gaussian":
             d.update(mean=lat.mean_ms, stddev=lat.stddev_ms)
         elif lat.dist == "spike":
@@ -705,7 +770,9 @@ def _float_or_none(v):
 def describe(decision: Decision) -> str:
     parts = []
     if decision.latency_ms:
-        parts.append(f"latency:{decision.latency_ms:.0f}ms")
+        lat = decision.rule.latency
+        name = f"{lat.preset}:" if lat is not None and lat.preset else ""
+        parts.append(f"latency:{name}{decision.latency_ms:.0f}ms")
     if decision.error:
         parts.append(f"error:{decision.error.code}")
     if decision.timeout_ms:

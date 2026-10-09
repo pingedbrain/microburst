@@ -113,10 +113,10 @@ query-marker + required-header disambiguation.
   the client connection after N consumed bytes without forwarding (a
   true mid-upload reset for streaming uploads — S3 PutObject/UploadPart;
   pre-buffered bodies cut on the read path instead).
-- **Service latency presets** — feed measured per-service latency
-  distributions from captures into named presets
-  (`latency: {preset: dynamodb}`) so faults feel like the real service's
-  baseline. `[size:M]`
+- ~~Service latency presets~~ ✅ — `latency: {preset: dynamodb}` resolves
+  a measured per-service baseline (real AWS us-east-1 probing, 2026-02:
+  service-side residual = p50 − ~155ms network floor, gaussian with
+  inferred stddev). `tools/latency_probe.py` refreshes the data.
 
 ## Rules (`rules.py`)
 

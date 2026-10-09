@@ -174,6 +174,9 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
                                    #  min: 100, max: 2000}
                                    # {dist: spike, min: 50, max: 100,
                                    #  spike_ms: 5000, spike_p: 0.05}
+                                   # {preset: dynamodb} — measured per-service
+                                   #  baseline (see below); explicit keys in the
+                                   #  same block override preset values
   timeout_ms: 30000                # hold the connection, then 504
   reset: true                      # abort the TCP connection
   response:                        # post-forward: mutate the upstream response
@@ -219,6 +222,20 @@ microburst dashboard            # TUI: rules + live fault stream (needs [tui])
 `times: 1` is the sleeper feature — *"fail exactly once, then let the retry
 succeed"* verifies your retry path end-to-end instead of just proving errors
 surface.
+
+`latency: {preset: <service>}` picks a measured per-service baseline
+(`dynamodb`, `s3`, `sqs`, `sns`, `lambda`, `kinesis`, `iam`, `ec2`,
+`cloudformation`, `ssm`, `secretsmanager`, `sts`, `logs`, `firehose`,
+`events`, `stepfunctions`, `kms`, `athena`, `route53`, `cloudfront`,
+`glacier`, `wafv2`, `elbv2`, `apigateway`, `pinpoint`). The numbers are a
+**real AWS observation** — read-only ops probed against live `us-east-1`
+in 2026-02, n=8 per service — encoded as each service's *service-side
+residual*: observed p50 minus the ~155ms host→region network floor,
+because your own network isn't microburst's to simulate. The gaussian
+`stddev` (`max(5, 0.35·mean)`) is a modeling **inference**, not a
+measurement — service-side variance isn't recoverable through network
+noise. Treat presets as order-of-magnitude baselines, not SLAs; refresh
+them with `tools/latency_probe.py` (real AWS only).
 
 Fault ordering: a fired rule applies `request:` faults first — the upload
 happens before any response can exist, so a `cut_upload` link dies before
