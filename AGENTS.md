@@ -29,6 +29,10 @@ extension seams:
 - `src/microburst/rules.py` — rule matching engine + presets.
 - `src/microburst/forward.py` — upstream relay + SigV4 re-signing
   (data plane only, no decisions).
+- `src/microburst/pg/` — PostgreSQL wire mode: a sibling transport, not
+  the HTTP pipeline. `proto.py` frame codec, `errors.py` ErrorResponse
+  renderer, `detect.py` SQL verb detection, `server.py` asyncio TCP
+  proxy (`--protocol postgres`, control API on `--control-port`).
 - `src/microburst/framing.py` — defensive message-boundary parsing for
   framed upload bodies (eventstream preludes, gRPC length prefixes),
   used by `request:` faults.

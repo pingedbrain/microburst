@@ -11,7 +11,9 @@ from microburst.rules import Decision
 
 
 async def apply(ctx, decision: Decision) -> web.Response | None:
-    if not decision.timeout_ms:
+    # Negative timeout_ms is the pg wire mode's hang-forever sentinel —
+    # meaningless on HTTP, where the rule should just not fire this stage.
+    if not decision.timeout_ms or decision.timeout_ms < 0:
         return None
     await asyncio.sleep(decision.timeout_ms / 1000)
     status, headers, body = render_error(

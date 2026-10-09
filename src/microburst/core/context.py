@@ -42,6 +42,9 @@ class RequestContext:
     # match the request's protocol, not the model's.
     protocol: str | None = None
     query_compat: bool = False
+    # PostgreSQL wire mode only: raw query text for the `sql:` rule
+    # matcher. Always None on the HTTP path.
+    sql: str | None = None
 
     # Rule decision (filled by the engine before effects run)
     decision: Decision | None = None

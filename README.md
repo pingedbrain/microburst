@@ -291,6 +291,83 @@ Load rules at startup with `microburst --config chaos.yml`
 (see `examples/chaos.yml`); add `--watch` to hot-reload the file on every
 save — the file replaces the whole ruleset each reload.
 
+## PostgreSQL wire mode
+
+microburst also speaks the **PostgreSQL v3 wire protocol** — a TCP proxy
+that injects SQLSTATE-correct `ErrorResponse`s and connection faults
+between your app and any Postgres server. PG is a sibling transport, not
+a second use of the HTTP pipeline: the same rules engine, fired log,
+control API, and stats serve both modes.
+
+```bash
+microburst --protocol postgres --port 15432 --upstream localhost:5432
+# control API is its own HTTP listener (default :9999, --control-port)
+
+psql "host=localhost port=15432 dbname=mydb" -c "select 1"
+# → flows through the proxy to localhost:5432
+```
+
+Rule matching for pg: `service: postgres`, `operation:` is the lowercased
+SQL verb (`select`, `insert`, `begin`, …) or `startup` for the connect
+handshake; `resource:` matches a table-ish token; `sql:` is a
+case-insensitive regex against the raw query text.
+
+```yaml
+# refuse connections like a maxed-out pool
+- service: postgres
+  operation: startup
+  error: {sqlstate: "53300", severity: FATAL, message: "too many connections"}
+
+# serialization failure — psql shows: ERROR:  could not serialize access
+- service: postgres
+  operation: select
+  sql: "into orders"
+  error: {sqlstate: "40001", message: "could not serialize access"}
+
+# slow, then canceled — a realistic statement_timeout
+- operation: update
+  latency: {min: 800, max: 1500}
+  error: {sqlstate: "57014", message: "canceling statement due to statement timeout"}
+
+# server dies mid-ResultSet: 2 real rows, then the TCP link aborts
+- operation: select
+  partial_rows: 2
+
+- operation: select
+  timeout: true     # hang until the client gives up
+  # or: reset: true  # TCP RST
+```
+
+**Severity is the fidelity.** `severity: FATAL` (or `PANIC`) sends the
+ErrorResponse then closes the connection — exactly what real PostgreSQL
+does — and is the only error class safe to inject inside an open
+transaction. A plain `ERROR` is injected **only while the session is
+idle** (upstream's last `ReadyForQuery` said `I`): inside a transaction
+(`T`/`E`) the rule is skipped and the query forwards untouched, because
+an error the upstream never saw would desync client and server tx state.
+Skips are recorded on the fired event's `note` (`skipped: in-transaction`).
+
+Startup errors always close the session after the ErrorResponse — a
+refused connection has no session to return to. `timeout_ms: N` stalls a
+query for N ms; `timeout: true` stalls until the client disconnects.
+Extended protocol (`Parse…Sync` batches, including named prepared
+statements learned per connection) is decided at batch granularity.
+Every fired fault lands in `/_microburst/fired` and `/metrics` with
+`service="postgres"`, `operation` = verb, and the first ~80 chars of SQL
+in `path`.
+
+**Limitations (honest list):**
+
+- Auth is passthrough only — SCRAM works because credentials are
+  relayed uninspected; the proxy never synthesizes `AuthenticationOk`.
+- `SSLRequest`/`GSSENCRequest` are refused with `N` (plaintext only).
+- COPY streams relay verbatim but are never intercepted.
+- No replication protocol (`walsender`/`CopyBothResponse`), no
+  `FunctionCall` interception (it forwards + relays), no per-statement
+  error replay like `25P02` emulation inside a transaction — injecting
+  into an open tx needs upstream tx tracking beyond the status byte.
+- Only the first statement of a multi-statement `Query` is classified.
+
 ## Real AWS upstreams
 
 ```bash

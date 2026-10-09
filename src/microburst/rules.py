@@ -12,6 +12,7 @@ import hashlib
 import itertools
 import json
 import random
+import re
 import time
 import xml.etree.ElementTree as ET
 from collections import deque
@@ -64,6 +65,7 @@ class FaultError:
     status: int | None = None    # None → modeled httpStatusCode, else 400
     message: str | None = None
     fields: dict | None = None   # extra error-shape members, rendered per protocol
+    severity: str | None = None  # pg wire mode only: ERROR / FATAL / PANIC
 
 
 @dataclass
@@ -74,6 +76,7 @@ class Rule:
     resource: str | None = None
     headers: dict[str, str] | None = None
     body: str | None = None          # jmespath expression — truthy = match
+    sql: str | None = None           # pg wire mode: case-insensitive regex on query text
     rate_count: int | None = None    # at most N fires per rate_window
     rate_window: float | None = None  # seconds
     sequence: tuple[int, int] | None = None  # (fail N, pass M), repeating
@@ -82,8 +85,9 @@ class Rule:
     times: int | None = None
     error: FaultError | None = None
     latency: Latency | None = None
-    timeout_ms: float | None = None
+    timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
+    partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
     response: dict | None = None   # post-forward response mutation spec
     request: dict | None = None    # pre-forward client-upload fault spec
     ttl_s: float | None = None     # rule expires N seconds after creation
@@ -93,6 +97,7 @@ class Rule:
     fired_count: int = 0
     created_ts: float = field(default_factory=time.time)
     _body_expr: Any = field(default=None, repr=False)  # jmespath Parser
+    _sql_re: Any = field(default=None, repr=False)     # compiled sql regex
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
@@ -124,6 +129,12 @@ class Rule:
         if self.body is not None:
             parsed = _body_value(info)
             if parsed is None or not self._body_expr.search(parsed):
+                return False
+        if self.sql is not None:
+            if self._sql_re is None:
+                # lazy compile — covers Rules built without from_dict
+                self._sql_re = re.compile(self.sql, re.IGNORECASE)
+            if info.sql is None or self._sql_re.search(info.sql) is None:
                 return False
         if self.rate_count is not None:
             now = time.time()
@@ -262,8 +273,24 @@ def _latency_from_dict(data: dict) -> Latency:
     )
 
 
+def _timeout_ms(data: dict) -> float | None:
+    """`timeout_ms` is the canonical key; `timeout: true` is the pg wire
+    mode's hang-forever variant, stored as a negative sentinel."""
+    if data.get("timeout_ms") is not None:
+        return float(data["timeout_ms"])
+    if data.get("timeout"):
+        return -1.0
+    return None
+
+
 def from_dict(data: dict) -> Rule:
     error = data.get("error")
+    if isinstance(error, dict):
+        error = dict(error)
+        # pg wire mode spells the code `sqlstate`; `code` stays canonical
+        sqlstate = error.pop("sqlstate", None)
+        if error.get("code") is None and sqlstate is not None:
+            error["code"] = sqlstate
     latency = data.get("latency")
     rate = data.get("rate")
     sequence = data.get("sequence")
@@ -278,6 +305,7 @@ def from_dict(data: dict) -> Rule:
             else None
         ),
         body=data.get("body"),
+        sql=data.get("sql"),
         rate_count=int(rate["count"]) if isinstance(rate, dict) else None,
         rate_window=float(rate.get("window_s", 60)) if isinstance(rate, dict) else None,
         sequence=(
@@ -298,8 +326,13 @@ def from_dict(data: dict) -> Rule:
             if isinstance(latency, dict)
             else None
         ),
-        timeout_ms=data.get("timeout_ms"),
+        timeout_ms=_timeout_ms(data),
         reset=bool(data.get("reset", False)),
+        partial_rows=(
+            int(data["partial_rows"])
+            if data.get("partial_rows") is not None
+            else None
+        ),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
         request=data.get("request") if isinstance(data.get("request"), dict) else None,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
@@ -311,6 +344,13 @@ def from_dict(data: dict) -> Rule:
             rule._body_expr = jmespath.compile(rule.body)
         except Exception as e:  # any compile failure → bad rule
             raise ValueError(f"invalid body jmespath {rule.body!r}: {e}") from e
+    if rule.sql is not None:
+        try:
+            rule._sql_re = re.compile(rule.sql, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"invalid sql regex {rule.sql!r}: {e}") from e
+    if rule.partial_rows is not None and rule.partial_rows < 0:
+        raise ValueError("partial_rows must be >= 0")
     if (
         rule.error is not None
         and rule.error.fields is not None
@@ -330,6 +370,8 @@ def to_dict(rule: Rule) -> dict:
         out["headers"] = rule.headers
     if rule.body is not None:
         out["body"] = rule.body
+    if rule.sql is not None:
+        out["sql"] = rule.sql
     if rule.rate_count is not None:
         out["rate"] = {"count": rule.rate_count, "window_s": rule.rate_window}
     if rule.sequence is not None:
@@ -348,6 +390,7 @@ def to_dict(rule: Rule) -> dict:
                 "status": rule.error.status,
                 "message": rule.error.message,
                 "fields": rule.error.fields,
+                "severity": rule.error.severity,
             }.items()
             if v is not None
         }
@@ -363,9 +406,14 @@ def to_dict(rule: Rule) -> dict:
         d.update(min=lat.min_ms, max=lat.max_ms)
         out["latency"] = d
     if rule.timeout_ms is not None:
-        out["timeout_ms"] = rule.timeout_ms
+        if rule.timeout_ms < 0:
+            out["timeout"] = True
+        else:
+            out["timeout_ms"] = rule.timeout_ms
     if rule.reset:
         out["reset"] = True
+    if rule.partial_rows is not None:
+        out["partial_rows"] = rule.partial_rows
     if rule.response:
         out["response"] = rule.response
     if rule.request:
@@ -790,11 +838,17 @@ def describe(decision: Decision) -> str:
         name = f"{lat.preset}:" if lat is not None and lat.preset else ""
         parts.append(f"latency:{name}{decision.latency_ms:.0f}ms")
     if decision.error:
-        parts.append(f"error:{decision.error.code}")
+        sev = f"/{decision.error.severity}" if decision.error.severity else ""
+        parts.append(f"error:{decision.error.code}{sev}")
     if decision.timeout_ms:
-        parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
+        if decision.timeout_ms < 0:
+            parts.append("timeout")
+        else:
+            parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
     if decision.reset:
         parts.append("reset")
+    if decision.rule.partial_rows is not None:
+        parts.append(f"partial_rows:{decision.rule.partial_rows}")
     xf = decision.request_fault
     if xf is not None:
         # request-side faults act on the upload — they run before the

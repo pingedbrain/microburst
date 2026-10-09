@@ -268,13 +268,17 @@ query-marker + required-header disambiguation.
   `AWS_ENDPOINT_URL`. Optional `config:` mounts a rules file.
 - MiniStack-native integration — `/_ministack/chaos`-compatible API so the
   same faults work without a separate proxy hop.
-- **Protocol-agnostic core + PostgreSQL wire** — issue #6: extract the
-  `detect → decide → effect` pipeline so a wire protocol is a module
-  (frame parser + operation detector + error renderer), then a
-  `--protocol postgres` TCP mode emitting SQLSTATE-correct
-  ErrorResponses (`40001`, `40P01`, `55P03`, `57P01`) that real drivers
-  retry on. Redis `-MOVED`/`-ASK` and gRPC trailers are the natural
-  follow-ons. `[size:L]`
+- **Protocol-agnostic core + PostgreSQL wire** — issue #6. ~~Phase 0/1
+  (MVP)~~ ✅: PG landed as a *sibling transport* (`src/microburst/pg/`),
+  not a pipeline refactor — shared rule engine/fired log/control API,
+  `--protocol postgres` TCP proxy with startup faults (`53300` FATAL),
+  simple + extended-protocol query faults, tx-status-aware ERROR
+  injection, `partial_rows` mid-ResultSet aborts, latency/reset/timeout.
+  What remains: COPY sub-protocol interception, `25P02`-class
+  in-transaction emulation (needs deeper upstream tx tracking), named
+  prepared-statement lifecycle (Close/deallocate), replication
+  (`walsender`) protocol, Redis `-MOVED`/`-ASK` and gRPC trailers via
+  the same sibling-transport seam. `[size:L → M remaining]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`

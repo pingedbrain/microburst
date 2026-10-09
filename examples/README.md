@@ -28,6 +28,8 @@ curl http://localhost:9999/_microburst/fired
 | 06 | [expired-token](06-expired-token/) | `ExpiredTokenException` once mid-session — does the app refresh credentials or die? |
 | 07 | [http-dependency](07-http-dependency/) | Any HTTP dependency (not just AWS): latency, resets, timeouts — "the payment API got slow". |
 | 08 | [upload-cut](08-upload-cut/) | The link dies mid-`PutObject` — does the SDK retry connection errors on its write path? |
+| 09 | [eventstream-cut](09-eventstream-cut/) | The link dies *between* frames of a framed upload — does the SDK treat it as a network cut, not a truncated body? |
+| 10 | [postgres](10-postgres/) | `--protocol postgres`: SQLSTATE-correct faults on the PG wire — does the app retry `40001` but not `23505`? (needs a Postgres upstream, not an emulator) |
 
 Also in this directory:
 

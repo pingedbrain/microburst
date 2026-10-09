@@ -24,12 +24,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", "-V", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
+        "--protocol", choices=["http", "postgres"], default=None,
+        help="data-plane protocol (default: http). 'postgres' swaps the "
+        "proxy listener to a PostgreSQL wire TCP proxy.",
+    )
+    parser.add_argument(
         "--upstream", "-u", default=None,
-        help="upstream AWS endpoint (default: config file or http://localhost:4566)",
+        help="upstream endpoint (default: config file or "
+        "http://localhost:4566; postgres mode takes host:port, "
+        "default localhost:5432)",
     )
     parser.add_argument(
         "--port", "-p", type=int, default=None,
-        help="listen port (default: 9999)",
+        help="listen port (default: 9999 http / 15432 postgres)",
+    )
+    parser.add_argument(
+        "--control-port", type=int, default=None,
+        help="control API port in postgres mode (default: 9999; "
+        "ignored in http mode where control shares the data port)",
     )
     parser.add_argument(
         "--host", default=None, help="listen host (default: 127.0.0.1)",
@@ -79,6 +91,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _pg_upstream(raw: str) -> tuple[str, int]:
+    """Parse a postgres upstream: host[:port] or postgresql://host[:port]."""
+    from urllib.parse import urlsplit
+
+    if "://" in raw:
+        parsed = urlsplit(raw)
+        if parsed.scheme not in ("postgres", "postgresql"):
+            raise ValueError(
+                f"scheme {parsed.scheme!r} is not postgres/postgresql"
+            )
+        return parsed.hostname or "localhost", parsed.port or 5432
+    host, sep, port = raw.rpartition(":")
+    if not sep:
+        return raw, 5432
+    if not host:
+        host = "localhost"
+    try:
+        return host, int(port)
+    except ValueError:
+        raise ValueError(f"expected host:port, got {raw!r}") from None
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "fidelity":
@@ -99,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.config:
         config = load_config(args.config)
 
-    port = args.port or config.get("port") or 9999
+    protocol = args.protocol or config.get("protocol") or "http"
+    default_port = 15432 if protocol == "postgres" else 9999
+    port = args.port or config.get("port") or default_port
 
     if args.command == "dashboard":
         from microburst.dashboard import run_dashboard
@@ -107,9 +143,44 @@ def main(argv: list[str] | None = None) -> int:
         connect = args.connect or f"http://127.0.0.1:{port}"
         return run_dashboard(connect)
 
-    upstream = args.upstream or config.get("upstream") or "http://localhost:4566"
+    default_upstream = (
+        "localhost:5432" if protocol == "postgres"
+        else "http://localhost:4566"
+    )
+    upstream = args.upstream or config.get("upstream") or default_upstream
     host = args.host or config.get("host") or "127.0.0.1"
     rules = config.get("rules") or []
+
+    if args.watch and not args.config:
+        print("--watch needs --config (the file to watch)", file=sys.stderr)
+        return 2
+
+    if protocol == "postgres":
+        if args.record or args.replay or args.resign or args.http2:
+            print(
+                "warning: --record/--replay/--resign/--http2 are HTTP-only "
+                "and ignored in postgres mode",
+                file=sys.stderr,
+            )
+        try:
+            upstream_host, upstream_port = _pg_upstream(upstream)
+        except ValueError as e:
+            print(f"invalid --upstream for postgres mode: {e}", file=sys.stderr)
+            return 2
+        control_port = (
+            args.control_port or config.get("control_port") or 9999
+        )
+        from microburst.pg.server import run_postgres
+
+        return run_postgres(
+            host,
+            port,
+            upstream_host,
+            upstream_port,
+            control_port,
+            rules,
+            watch_config=args.config if args.watch else None,
+        )
 
     if args.no_resign:
         resign = False
@@ -126,10 +197,6 @@ def main(argv: list[str] | None = None) -> int:
             args.record or args.replay,
             "record" if args.record else "replay",
         )
-
-    if args.watch and not args.config:
-        print("--watch needs --config (the file to watch)", file=sys.stderr)
-        return 2
 
     microburst = Microburst(
         upstream, rules=rules, resign=resign, http2=args.http2,

@@ -8,6 +8,23 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **PostgreSQL wire mode** — `microburst --protocol postgres --port
+  15432 --upstream localhost:5432` runs a TCP proxy speaking the PG v3
+  wire protocol, sharing the rules engine, fired log, control API
+  (own listener, `--control-port`, default 9999), metrics and stats.
+  New package `src/microburst/pg/` (frame codec, ErrorResponse renderer,
+  SQL verb detector, asyncio connection handler). Rule mapping:
+  `service: postgres`, `operation:` = SQL verb or `startup`, `sql:` =
+  case-insensitive regex on query text, `error: {sqlstate, severity,
+  message}`, `partial_rows: N` (N real DataRows then TCP-abort),
+  `timeout: true` (hang until client disconnect). Fidelity semantics:
+  `FATAL`/`PANIC` severity sends the ErrorResponse then closes like real
+  PG; plain `ERROR` is injected only while the session is idle — inside
+  a transaction the rule skips and the fired note says
+  `skipped: in-transaction`. Auth is passthrough (SCRAM intact),
+  `SSLRequest`/`GSSENCRequest` are refused `N`, extended-protocol
+  batches (`Parse…Sync`, named statements included) are decided at batch
+  granularity. New example: `examples/10-postgres`.
 - **Message-boundary request faults** — `request:` learns two framed-body
   options. `cut_upload.after_messages: N` parses framed uploads
   (`application/vnd.amazon.eventstream` preludes, `application/grpc*`

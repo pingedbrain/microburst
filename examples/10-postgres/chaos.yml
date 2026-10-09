@@ -1,0 +1,42 @@
+# PostgreSQL wire-mode rules — `microburst --protocol postgres -c chaos.yml`
+#
+# operation: is the lowercased SQL verb (select/insert/begin/…) or
+# `startup` for the connect handshake. sql: is a case-insensitive regex
+# on the query text. severity: FATAL closes the connection after the
+# ErrorResponse (real PG behavior); plain ERROR is injected only while
+# the session is idle — never inside a transaction.
+
+upstream: localhost:5432
+port: 15432
+control_port: 9999
+
+rules:
+  # every 4th connection gets refused like a maxed-out pool
+  - service: postgres
+    operation: startup
+    sequence: {fail: 1, pass: 3}
+    error:
+      sqlstate: "53300"
+      severity: FATAL
+      message: "too many connections"
+
+  # serialization failure on order writes — the app's tx-retry path
+  - service: postgres
+    sql: "into orders"
+    probability: 0.3
+    error:
+      sqlstate: "40001"
+      message: "could not serialize access due to concurrent update"
+
+  # realistic statement_timeout on slow reads: latency, then cancel
+  - operation: select
+    probability: 0.15
+    latency: {min: 800, max: 1500}
+    error:
+      sqlstate: "57014"
+      message: "canceling statement due to statement timeout"
+
+  # the server dies mid-ResultSet once in a while
+  - operation: select
+    probability: 0.05
+    partial_rows: 3

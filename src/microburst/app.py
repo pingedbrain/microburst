@@ -16,12 +16,12 @@ from microburst.core.pipeline import Microburst
 logger = logging.getLogger("microburst.app")
 
 
-def make_app(
-    microburst: Microburst, watch_config: str | None = None
+def make_control_app(
+    microburst, watch_config: str | None = None
 ) -> web.Application:
+    """The ``/_microburst/*`` surface alone — non-HTTP data planes (the
+    pg wire mode) run it on their own port."""
     app = web.Application()
-    app.on_startup.append(microburst.start)
-    app.on_cleanup.append(microburst.stop)
     if watch_config:
         app.on_startup.append(
             lambda app: _start_watch(app, microburst, watch_config)
@@ -31,6 +31,15 @@ def make_app(
         "*", f"{CONTROL_PREFIX}/{{tail:.*}}", microburst.handle_control
     )
     app.router.add_route("*", CONTROL_PREFIX, microburst.handle_control)
+    return app
+
+
+def make_app(
+    microburst: Microburst, watch_config: str | None = None
+) -> web.Application:
+    app = make_control_app(microburst, watch_config)
+    app.on_startup.append(microburst.start)
+    app.on_cleanup.append(microburst.stop)
     app.router.add_route("*", "/{tail:.*}", microburst.handle_proxy)
     return app
 

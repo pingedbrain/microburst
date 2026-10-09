@@ -19,6 +19,7 @@ from microburst.control import handle_control
 from microburst.detection import detect, should_buffer
 from microburst.effects import apply_decision
 from microburst.forward import Upstream, consume_upload
+from microburst.observe import emit_fired
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
 from microburst.tracing import fault_span
@@ -98,19 +99,7 @@ class Microburst:
                 action=action,
                 path=request.rel_url.raw_path_qs,
             )
-            self.fired.append(event)
-            self.fault_counts[(ctx.service, ctx.operation, action)] += 1
-            self.stats.record_fault(decision.rule.id, action)
-            payload = event.to_dict()
-            for q in self._listeners:
-                try:
-                    q.put_nowait(payload)
-                except asyncio.QueueFull:
-                    pass  # slow consumer drops events, never blocks the proxy
-            logger.info(
-                "FIRED rule=%s %s %s %s",
-                decision.rule.id, ctx.service, ctx.operation, action,
-            )
+            emit_fired(self, event)
             with fault_span(
                 decision.rule.id, ctx.service, ctx.operation, action
             ):

@@ -24,7 +24,7 @@ def test_example_config_parses(path):
     for rule in parsed:
         effects = [
             rule.error, rule.latency, rule.timeout_ms, rule.reset,
-            rule.response, rule.request,
+            rule.response, rule.request, rule.partial_rows,
         ]
         assert any(e is not None and e is not False for e in effects), (
             f"{path}: rule has matchers but no fault effect"
