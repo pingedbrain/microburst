@@ -10,6 +10,10 @@ All notable changes to this project will be documented here. Format follows
 
 - **Fired-log time range** — `GET /_microburst/fired` accepts `?since=` /
   `?until=` (epoch seconds or ISO-8601) alongside the field filters.
+- **`fidelity capture --region`** — probe any AWS region; probe kwargs
+  embed region-bearing ARNs, which rebind to the target region. The goldens
+  were re-verified identical across all 17 enabled regions of a real
+  account — only service availability differs, never the wire shape.
 - **`error.fields`** — extra error-shape members on injected errors,
   rendered per protocol (json members, `<Error>` children on query/ec2,
   flat elements on rest-xml, CBOR map entries). S3-family errors now also

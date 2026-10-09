@@ -261,6 +261,7 @@ profile/env) and diffs them against what `render_error` produces:
 
 ```bash
 AWS_PROFILE=you microburst fidelity capture   # raw wire captures
+microburst fidelity capture --region eu-west-1 --dir eu/  # any region
 microburst fidelity report                    # → fidelity/REPORT.md
 microburst fidelity snapshot                  # model digests (no creds)
 
@@ -284,6 +285,11 @@ Content-Type — including the details that matter to SDK retry behavior:
 `x-amz-json-1.1` content types, `com.amazonaws.*`-namespaced `__type`,
 rest-json `x-amzn-ErrorType` headers, SQS's `AWS.SimpleQueueService.*`
 query-compat namespace, Route53's `text/xml`, and empty-body HEAD errors.
+
+The envelopes are also region-invariant: the same probe set captured in
+every enabled region of a real account (17 regions) conforms 28/28 —
+the only per-region difference observed is service availability (e.g.
+Pinpoint has no endpoint in 5 regions), never the wire shape.
 
 ### Multi-SDK matrix
 

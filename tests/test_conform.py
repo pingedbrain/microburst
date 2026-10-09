@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import json
 
-from microburst.fidelity import conform
+from microburst.fidelity import _rebind_region, conform
+
+
+def test_rebind_region_rewrites_embedded_arn_regions():
+    kwargs = _rebind_region(
+        {"TopicArn": "arn:aws:sns:us-east-1:000000000000:q",
+         "Name": "x"}, "eu-west-1",
+    )
+    assert kwargs["TopicArn"] == "arn:aws:sns:eu-west-1:000000000000:q"
+    assert kwargs["Name"] == "x"
+
+
+def test_rebind_region_leaves_plain_values_alone():
+    kwargs = _rebind_region({"TableName": "orders"}, "us-west-2")
+    assert kwargs == {"TableName": "orders"}
 
 _AWS_CAP = {
     "service": "dynamodb",

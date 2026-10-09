@@ -80,10 +80,18 @@ PROBES: list[tuple[str, str, dict[str, Any], str]] = [
 ]
 
 
+def _rebind_region(kwargs: dict, region: str) -> dict:
+    """Probe kwargs embed literal regions (ARN fields) — rebind so a
+    multi-region capture exercises that region's own resources."""
+    raw = json.dumps(kwargs).replace("us-east-1", region)
+    return json.loads(raw)
+
+
 def capture(
     services: list[str] | None,
     out_dir: Path,
     endpoint_url: str | None = None,
+    region: str = "us-east-1",
 ) -> int:
     """Run probes against real AWS — or any emulator endpoint when
     ``endpoint_url`` is given — dumping raw wire responses."""
@@ -140,10 +148,10 @@ def capture(
         if wanted and service not in wanted:
             continue
         client = boto3.client(
-            service, region_name="us-east-1", **client_kwargs
+            service, region_name=region, **client_kwargs
         )
         try:
-            getattr(client, method)(**kwargs)
+            getattr(client, method)(**_rebind_region(kwargs, region))
             print(f"  {service}.{method}: no error?? probe returned success")
             continue
         except ClientError as e:
@@ -164,7 +172,7 @@ def capture(
             service=service, operation=method, family=family,
             model_service=client.meta.service_model.service_name,
             sdk_error_code=code, ts=time.time(),
-            provenance=_provenance(cap["headers"]),
+            provenance=_provenance(cap["headers"], region),
         )
         fname = capture_dir / f"{service}_{method}.json"
         fname.write_text(json.dumps(cap, indent=2, sort_keys=True))
@@ -182,7 +190,7 @@ _REQUEST_ID_HEADERS = (
 )
 
 
-def _provenance(headers: dict) -> dict:
+def _provenance(headers: dict, region: str = "us-east-1") -> dict:
     """Evidence block: which response ids AWS stamped + capture context.
 
     No account identifiers — enough for a reviewer to see this came off
@@ -195,7 +203,7 @@ def _provenance(headers: dict) -> dict:
             k: lower[k] for k in _REQUEST_ID_HEADERS if k in lower
         },
         "server": lower.get("server"),
-        "region": "us-east-1",
+        "region": region,
         "botocore": botocore.__version__,
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -545,6 +553,10 @@ def fidelity_main(argv: list[str]) -> int:
              "(emulator conformance)",
     )
     ap.add_argument(
+        "--region", default="us-east-1",
+        help="capture region (default: us-east-1)",
+    )
+    ap.add_argument(
         "--aws", dest="aws_dir", default=None,
         help="real-AWS captures dir for conform (default: <dir>)",
     )
@@ -559,7 +571,7 @@ def fidelity_main(argv: list[str]) -> int:
         if args.services else None
     )
     if args.command == "capture":
-        return capture(services, out_dir, args.endpoint_url)
+        return capture(services, out_dir, args.endpoint_url, args.region)
     if args.command == "report":
         return report(out_dir)
     if args.command == "snapshot":
