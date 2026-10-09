@@ -20,6 +20,7 @@ from microburst.detection import detect, should_buffer
 from microburst.effects import apply_decision
 from microburst.forward import Upstream, consume_upload
 from microburst.rules import FiredEvent, RuleEngine, describe
+from microburst.stats import ProxyStats
 from microburst.tracing import fault_span
 
 logger = logging.getLogger("microburst")
@@ -29,11 +30,13 @@ class Microburst:
     def __init__(self, upstream: str, rules: list[dict] | None = None,
                  resign: bool | None = None, fired_capacity: int = 2000,
                  http2: bool = False, cassette=None):
+        self.stats = ProxyStats()
         self.upstream = Upstream(
             upstream,
             resign=(".amazonaws.com" in upstream) if resign is None else resign,
             http2=http2,
             cassette=cassette,
+            stats=self.stats,
         )
         self.engine = RuleEngine()
         if rules:
@@ -79,6 +82,7 @@ class Microburst:
             body = await request.read()
 
         ctx = detect(request.headers, request.method, path, query, body)
+        self.stats.record_request(ctx.service)
 
         decision = self.engine.decide(ctx)
         if decision is not None:
@@ -96,6 +100,7 @@ class Microburst:
             )
             self.fired.append(event)
             self.fault_counts[(ctx.service, ctx.operation, action)] += 1
+            self.stats.record_fault(decision.rule.id, action)
             payload = event.to_dict()
             for q in self._listeners:
                 try:
@@ -125,12 +130,14 @@ class Microburst:
                     return fault
                 # terminal effects didn't fire → forward, possibly
                 # mutating the response on the way back
+                self.stats.record_forward()
                 return await self.upstream.relay(
                     request, body,
                     mutator=decision.response_fault,
                     data=data,
                 )
 
+        self.stats.record_forward()
         return await self.upstream.relay(request, body)
 
     async def handle_control(self, request: web.Request):

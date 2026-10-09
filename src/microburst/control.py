@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from collections import Counter
 from datetime import datetime
 
 from aiohttp import web
@@ -95,6 +97,9 @@ async def handle_control(microburst, request: web.Request):
     if tail == "metrics" and method == "GET":
         return _metrics(microburst)
 
+    if tail == "stats" and method == "GET":
+        return web.json_response(_stats(microburst))
+
     if tail == "presets" and method == "GET":
         return web.json_response(PRESETS)
 
@@ -149,6 +154,42 @@ def _metrics(microburst) -> web.Response:
         text="\n".join(lines) + "\n",
         content_type="text/plain; version=0.0.4",
     )
+
+
+def _stats(microburst) -> dict:
+    """Aggregates /metrics can't express: latency distribution, per-rule
+    hit counts, per-service split, fault-vs-forwarded ratio.
+
+    Reuses the metrics counters rather than recounting: ``faulted`` is the
+    sum of ``fault_counts`` (one increment per fired event — identical to
+    the fired log's length when the deque hasn't evicted). ``faulted`` and
+    ``forwarded`` are NOT a partition — a latency-then-forward fault lands
+    in both."""
+    stats = microburst.stats
+    faulted_by_service: Counter = Counter()
+    for (svc, _op, _action), n in microburst.fault_counts.items():
+        faulted_by_service[svc or "unknown"] += n
+    return {
+        "uptime_s": round(time.monotonic() - stats.started_mono, 1),
+        "requests": {
+            "total": microburst.requests_seen,
+            "faulted": sum(microburst.fault_counts.values()),
+            "forwarded": stats.forwarded,
+        },
+        "upstream_latency_ms": stats.latency_summary(),
+        "by_rule": [
+            {"id": rid, "describe": e["describe"], "fired": e["fired"]}
+            for rid, e in sorted(stats.by_rule.items())
+        ],
+        "by_service": [
+            {
+                "service": svc,
+                "requests": stats.by_service[svc],
+                "faulted": faulted_by_service[svc],
+            }
+            for svc in sorted(stats.by_service | faulted_by_service)
+        ],
+    }
 
 
 async def _fired_stream(microburst, request: web.Request) -> web.StreamResponse:

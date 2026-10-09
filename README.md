@@ -266,6 +266,7 @@ backpressure and a true mid-upload reset.
 | GET · DELETE | `/_microburst/fired` | fault audit log / clear it — GET filters: `?service=&operation=&rule_id=&limit=&since=&until=` (epoch or ISO-8601) |
 | GET | `/_microburst/fired/stream` | live SSE tail — every fault as it fires |
 | GET | `/_microburst/metrics` | Prometheus exposition: `microburst_requests_total`, `microburst_faults_total{service,operation,action}`, `microburst_rules_active` |
+| GET | `/_microburst/stats` | aggregates — uptime, `requests{total,faulted,forwarded}`, upstream time-to-headers percentiles (`min/p50/p95/max/mean` over the last 2048 relays), per-rule hit counts, per-service request/fault split |
 | GET · POST | `/_microburst/presets` & `/{name}` | list / activate presets |
 
 Load rules at startup with `microburst --config chaos.yml`

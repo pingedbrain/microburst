@@ -6,6 +6,15 @@ All notable changes to this project will be documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /_microburst/stats`** — aggregates that `/metrics` can't express:
+  uptime, request totals (`total` / `faulted` / `forwarded` — a
+  latency-then-forward fault lands in both buckets), upstream latency
+  percentiles over a bounded reservoir (last 2048 relays, measured
+  send → response-headers), per-rule hit counts that survive rule
+  deletion, and a per-service request/fault split.
+
 ## [0.8.0] - 2026-10-09
 
 ### Added

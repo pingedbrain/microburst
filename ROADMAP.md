@@ -155,10 +155,11 @@ query-marker + required-header disambiguation.
 - ~~Rules file hot-reload~~ ✅ — `--watch` polls the `--config` file's
   mtime and replaces the ruleset on change; a broken file keeps the
   previous rules (logged, not fatal).
-- **Stats endpoint** — `/_microburst/stats`: the fired log says *what*
-  fired; stats say how much each fault costs — per-rule hit counts,
-  upstream latency distribution, error rates. `/metrics` counts;
-  `/stats` would explain. `[size:S]`
+- ~~Stats endpoint~~ ✅ — `GET /_microburst/stats`: the fired log says
+  *what* fired; stats say how much each fault costs — per-rule hit counts
+  (survive rule deletion), upstream time-to-headers percentiles over a
+  bounded reservoir, per-service split, fault-vs-forwarded totals.
+  `/metrics` counts; `/stats` explains.
 
 ## Data plane (`forward.py`)
 

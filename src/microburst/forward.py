@@ -304,11 +304,14 @@ class Upstream:
     """
 
     def __init__(self, base_url: str, resign: bool = False,
-                 http2: bool = False, cassette: Cassette | None = None):
+                 http2: bool = False, cassette: Cassette | None = None,
+                 stats=None):
         self.base_url = base_url.rstrip("/")
         self.resign = resign
         self.http2 = http2
         self.cassette = cassette
+        # ProxyStats sink for upstream latency samples (None = don't record)
+        self.stats = stats
         self.session: aiohttp.ClientSession | None = None
         self.hx: httpx.AsyncClient | None = None  # set when http2
 
@@ -442,6 +445,10 @@ class Upstream:
         req = self.hx.build_request(
             request.method, url, headers=headers, content=content_stream()
         )
+        # Latency seam: send → response headers received. Downstream body
+        # streaming (and any injected bandwidth/abort mutation) stays out
+        # of the sample — it measures the upstream, not the fault.
+        t0 = time.monotonic()
         try:
             upstream = await self.hx.send(req, stream=True)
         except httpx.HTTPError as exc:
@@ -450,6 +457,8 @@ class Upstream:
                 status=502,
                 text=f"microburst: upstream {self.base_url} unreachable: {exc}",
             )
+        if self.stats is not None:
+            self.stats.record_upstream_ms((time.monotonic() - t0) * 1000)
         chunk_size = 8192 if mutator and mutator.bandwidth_kbps else None
         # aiter_raw: no decoding — we forward bytes verbatim, the client
         # owns Content-Encoding semantics
@@ -497,6 +506,9 @@ class Upstream:
         payload = data if data is not None else (
             body if body is not None else request.content
         )
+        # Latency seam: send → response headers received — same convention
+        # as _relay_httpx; a 502 (upstream unreachable) records no sample.
+        t0 = time.monotonic()
         try:
             upstream = await self.session.request(
                 request.method,
@@ -511,6 +523,8 @@ class Upstream:
                 status=502,
                 text=f"microburst: upstream {self.base_url} unreachable: {exc}",
             )
+        if self.stats is not None:
+            self.stats.record_upstream_ms((time.monotonic() - t0) * 1000)
 
         chunk_size = 8192 if mutator and mutator.bandwidth_kbps else 0
         chunks = (
