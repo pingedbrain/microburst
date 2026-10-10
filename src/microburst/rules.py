@@ -69,6 +69,26 @@ class FaultError:
 
 
 @dataclass
+class CorruptSpec:
+    """tcp wire mode: flip the byte at absolute offset ``at_bytes`` of
+    the client→server stream. ``bit`` is the corruption style — only
+    ``flip`` (XOR 0xFF) exists today."""
+    at_bytes: int
+    bit: str = "flip"
+
+
+@dataclass
+class RespondSpec:
+    """tcp wire mode: write ``data`` to the client WITHOUT forwarding the
+    decided unit upstream — the hand-crafted protocol-ish reply escape
+    hatch. ``then``: ``forward`` (keep relaying subsequent traffic),
+    ``close`` (clean close after the write), or ``hold`` (swallow the
+    rest of the client's stream while the link stays open)."""
+    data: bytes
+    then: str = "forward"          # forward | close | hold
+
+
+@dataclass
 class Rule:
     service: str | None = None
     operation: str | None = None
@@ -78,6 +98,7 @@ class Rule:
     body: str | None = None          # jmespath expression — truthy = match
     sql: str | None = None           # pg wire mode: case-insensitive regex on query text
     args: str | None = None          # redis wire mode: case-insensitive regex on command text
+    payload: str | None = None       # tcp wire mode: case-insensitive regex on unit bytes (latin-1); falls back to sql/args
     rate_count: int | None = None    # at most N fires per rate_window
     rate_window: float | None = None  # seconds
     sequence: tuple[int, int] | None = None  # (fail N, pass M), repeating
@@ -89,7 +110,10 @@ class Rule:
     timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
     partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
-    cut_reply_bytes: int | None = None  # redis wire mode: relay N reply bytes, then TCP-abort
+    cut_reply_bytes: int | None = None  # wire modes: relay N reply bytes, then TCP-abort
+    cut_reply_messages: int | None = None  # tcp wire mode: relay N reply frames, then TCP-abort
+    corrupt: CorruptSpec | None = None  # tcp wire mode: flip stream byte at offset
+    respond: RespondSpec | None = None  # tcp wire mode: synthetic client reply
     response: dict | None = None   # post-forward response mutation spec
     request: dict | None = None    # pre-forward client-upload fault spec
     ttl_s: float | None = None     # rule expires N seconds after creation
@@ -101,6 +125,7 @@ class Rule:
     _body_expr: Any = field(default=None, repr=False)  # jmespath Parser
     _sql_re: Any = field(default=None, repr=False)     # compiled sql regex
     _args_re: Any = field(default=None, repr=False)    # compiled args regex
+    _payload_re: Any = field(default=None, repr=False) # compiled payload regex
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
@@ -144,6 +169,16 @@ class Rule:
                 # lazy compile — covers Rules built without from_dict
                 self._args_re = re.compile(self.args, re.IGNORECASE)
             if info.args is None or self._args_re.search(info.args) is None:
+                return False
+        if self.payload is not None:
+            if self._payload_re is None:
+                self._payload_re = re.compile(self.payload, re.IGNORECASE)
+            # tcp sets info.payload; pg/redis get the same matcher on
+            # their command text via the sql/args fallback
+            text = info.payload
+            if text is None:
+                text = info.sql if info.sql is not None else info.args
+            if text is None or self._payload_re.search(text) is None:
                 return False
         if self.rate_count is not None:
             now = time.time()
@@ -303,6 +338,13 @@ def from_dict(data: dict) -> Rule:
     latency = data.get("latency")
     rate = data.get("rate")
     sequence = data.get("sequence")
+    request = data.get("request") if isinstance(data.get("request"), dict) else None
+    if isinstance(data.get("cut_upload"), dict):
+        # tcp wire mode spells it top-level like cut_reply; canonical
+        # home is still request.cut_upload → RequestFault
+        request = dict(request or {})
+        request["cut_upload"] = data["cut_upload"]
+    cut_reply_bytes, cut_reply_messages = _cut_reply(data.get("cut_reply"))
     rule = Rule(
         service=data.get("service"),
         operation=data.get("operation"),
@@ -316,6 +358,13 @@ def from_dict(data: dict) -> Rule:
         body=data.get("body"),
         sql=data.get("sql"),
         args=data.get("args"),
+        # `payload:` is the canonical byte-stream matcher; `bytes:` is an
+        # accepted spelling for the same thing
+        payload=(
+            data.get("payload")
+            if data.get("payload") is not None
+            else data.get("bytes")
+        ),
         rate_count=int(rate["count"]) if isinstance(rate, dict) else None,
         rate_window=float(rate.get("window_s", 60)) if isinstance(rate, dict) else None,
         sequence=(
@@ -343,9 +392,12 @@ def from_dict(data: dict) -> Rule:
             if data.get("partial_rows") is not None
             else None
         ),
-        cut_reply_bytes=_cut_reply_bytes(data.get("cut_reply")),
+        cut_reply_bytes=cut_reply_bytes,
+        cut_reply_messages=cut_reply_messages,
+        corrupt=_corrupt(data.get("corrupt")),
+        respond=_respond(data.get("respond")),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
-        request=data.get("request") if isinstance(data.get("request"), dict) else None,
+        request=request,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
         active_at=_ts_or_none(data.get("active_at")),
         until=_ts_or_none(data.get("until")),
@@ -365,6 +417,13 @@ def from_dict(data: dict) -> Rule:
             rule._args_re = re.compile(rule.args, re.IGNORECASE)
         except re.error as e:
             raise ValueError(f"invalid args regex {rule.args!r}: {e}") from e
+    if rule.payload is not None:
+        try:
+            rule._payload_re = re.compile(rule.payload, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(
+                f"invalid payload regex {rule.payload!r}: {e}"
+            ) from e
     if rule.partial_rows is not None and rule.partial_rows < 0:
         raise ValueError("partial_rows must be >= 0")
     if (
@@ -390,6 +449,8 @@ def to_dict(rule: Rule) -> dict:
         out["sql"] = rule.sql
     if rule.args is not None:
         out["args"] = rule.args
+    if rule.payload is not None:
+        out["payload"] = rule.payload
     if rule.rate_count is not None:
         out["rate"] = {"count": rule.rate_count, "window_s": rule.rate_window}
     if rule.sequence is not None:
@@ -432,8 +493,24 @@ def to_dict(rule: Rule) -> dict:
         out["reset"] = True
     if rule.partial_rows is not None:
         out["partial_rows"] = rule.partial_rows
-    if rule.cut_reply_bytes is not None:
-        out["cut_reply"] = {"after_bytes": rule.cut_reply_bytes}
+    if rule.cut_reply_bytes is not None or rule.cut_reply_messages is not None:
+        out["cut_reply"] = {
+            k: v
+            for k, v in {
+                "after_bytes": rule.cut_reply_bytes,
+                "after_messages": rule.cut_reply_messages,
+            }.items()
+            if v is not None
+        }
+    if rule.corrupt is not None:
+        out["corrupt"] = {"at_bytes": rule.corrupt.at_bytes}
+        if rule.corrupt.bit != "flip":
+            out["corrupt"]["bit"] = rule.corrupt.bit
+    if rule.respond is not None:
+        out["respond"] = {
+            "base64": base64.b64encode(rule.respond.data).decode(),
+            "then": rule.respond.then,
+        }
     if rule.response:
         out["response"] = rule.response
     if rule.request:
@@ -843,20 +920,81 @@ def _event_mutations(spec: dict) -> tuple:
     return tuple(out)
 
 
-def _cut_reply_bytes(spec) -> int | None:
-    """redis wire mode's response-side abort: `cut_reply: {after_bytes: N}`
-    relays N bytes of the real reply, then TCP-aborts mid-frame."""
+def _cut_reply(spec) -> tuple[int | None, int | None]:
+    """Response-side abort: `cut_reply: {after_bytes: N, after_messages: M}`
+    relays N bytes (redis, tcp) or M complete reply frames (framed tcp),
+    then TCP-aborts."""
+    if spec is None:
+        return None, None
+    if not isinstance(spec, dict):
+        raise TypeError(
+            "cut_reply must be a mapping: {after_bytes: N} or "
+            "{after_messages: M}"
+        )
+    n = spec.get("after_bytes")
+    m = spec.get("after_messages")
+    if n is None and m is None:
+        raise ValueError("cut_reply requires after_bytes or after_messages")
+    if n is not None:
+        n = int(n)
+        if n < 0:
+            raise ValueError("cut_reply.after_bytes must be >= 0")
+    if m is not None:
+        m = int(m)
+        if m < 0:
+            raise ValueError("cut_reply.after_messages must be >= 0")
+    return n, m
+
+
+def _corrupt(spec) -> CorruptSpec | None:
+    """tcp wire mode: `corrupt: {at_bytes: N, bit: flip}` flips the byte
+    at absolute offset N of the client→server stream."""
     if spec is None:
         return None
     if not isinstance(spec, dict):
-        raise TypeError("cut_reply must be a mapping: {after_bytes: N}")
-    n = spec.get("after_bytes")
-    if n is None:
-        raise ValueError("cut_reply requires after_bytes")
-    n = int(n)
-    if n < 0:
-        raise ValueError("cut_reply.after_bytes must be >= 0")
-    return n
+        raise TypeError("corrupt must be a mapping: {at_bytes: N}")
+    at = spec.get("at_bytes")
+    if at is None:
+        raise ValueError("corrupt requires at_bytes")
+    at = int(at)
+    if at < 0:
+        raise ValueError("corrupt.at_bytes must be >= 0")
+    bit = spec.get("bit", "flip")
+    if bit != "flip":
+        raise ValueError(f"corrupt.bit must be 'flip', got {bit!r}")
+    return CorruptSpec(at_bytes=at, bit=bit)
+
+
+def _respond(spec) -> RespondSpec | None:
+    """tcp wire mode: `respond: {data|hex|base64, then}` writes crafted
+    bytes to the client instead of forwarding the decided unit."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise TypeError(
+            "respond must be a mapping: {data|hex|base64, then}"
+        )
+    sources = [k for k in ("data", "hex", "base64") if spec.get(k) is not None]
+    if len(sources) != 1:
+        raise ValueError(
+            "respond requires exactly one of data, hex, base64"
+        )
+    src = sources[0]
+    try:
+        if src == "data":
+            data = str(spec["data"]).encode("latin-1")
+        elif src == "hex":
+            data = bytes.fromhex(str(spec["hex"]))
+        else:
+            data = base64.b64decode(str(spec["base64"]), validate=True)
+    except (ValueError, UnicodeEncodeError) as e:
+        raise ValueError(f"invalid respond.{src}: {e}") from e
+    then = spec.get("then", "forward")
+    if then not in ("forward", "close", "hold"):
+        raise ValueError(
+            f"respond.then must be forward|close|hold, got {then!r}"
+        )
+    return RespondSpec(data=data, then=then)
 
 
 def _int_or_none(v):
@@ -887,6 +1025,15 @@ def describe(decision: Decision) -> str:
         parts.append(f"partial_rows:{decision.rule.partial_rows}")
     if decision.rule.cut_reply_bytes is not None:
         parts.append(f"cut_reply:{decision.rule.cut_reply_bytes}B")
+    if decision.rule.cut_reply_messages is not None:
+        parts.append(f"cut_reply:msg{decision.rule.cut_reply_messages}")
+    if decision.rule.corrupt is not None:
+        parts.append(f"corrupt@{decision.rule.corrupt.at_bytes}B")
+    if decision.rule.respond is not None:
+        parts.append(
+            f"respond:{len(decision.rule.respond.data)}B/"
+            f"{decision.rule.respond.then}"
+        )
     xf = decision.request_fault
     if xf is not None:
         # request-side faults act on the upload — they run before the

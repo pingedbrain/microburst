@@ -20,9 +20,11 @@ never take down the proxy.
 
 from __future__ import annotations
 
+import re
 import struct
 import zlib
 from collections.abc import AsyncIterable, AsyncIterator, Callable
+from dataclasses import dataclass
 
 EVENTSTREAM_CT = "application/vnd.amazon.eventstream"
 
@@ -128,6 +130,219 @@ class FramedStream:
     def drain(self) -> bytes:
         """Return and clear the unparsed remainder (a partial trailing
         frame, or everything from the malformed point onward)."""
+        out = bytes(self.buf)
+        self.buf.clear()
+        return out
+
+
+# --- generic user-declared framing (tcp wire mode) -----------------------------
+
+@dataclass(frozen=True)
+class FramerSpec:
+    """Parsed ``--framing`` / ``framing:`` declaration for tcp mode.
+
+    Three kinds, mirroring what common binary wire protocols actually do:
+
+    - ``length-prefix``: ``offset`` bytes, then a ``size``-byte integer in
+      ``endian`` order, then payload. The declared value ``L`` resolves to
+      a frame length of ``offset + size + L + adjust``; ``includes_self``
+      subtracts ``size`` (protocols like MongoDB whose length counts the
+      length field itself). ``adjust`` covers headers with bytes *after*
+      the length field — MySQL's 3-byte length + 1-byte sequence id is
+      ``{size: 3, adjust: 1, endian: little}``.
+    - ``delimiter``: a frame ends at (and includes) ``delimiter`` —
+      line-oriented and terminator protocols.
+    - ``fixed``: every ``size`` bytes is a frame.
+    """
+
+    kind: str                       # length-prefix | delimiter | fixed
+    size: int = 4                   # prefix width / fixed frame size
+    offset: int = 0                 # bytes skipped before the length field
+    endian: str = "big"             # big | little
+    includes_self: bool = False     # declared length counts the field itself
+    adjust: int = 0                 # extra header bytes after the field
+    delimiter: bytes = b""          # delimiter kind only
+
+
+_HEX_RE = re.compile(r"^(?:[0-9a-fA-F]{2})+$")
+
+
+def _delimiter_bytes(value) -> bytes:
+    """``bytes`` param: hex (``0d0a``), backslash escapes (``\\r\\n``),
+    or a literal latin-1 string. Also accepts raw bytes.
+
+    Hex needs at least one digit — otherwise ``"ab"`` would decode as
+    ``\\xab`` when the user almost certainly meant the literal ``ab``.
+    Pure-alpha literals use ``\\xNN`` escapes for binary bytes."""
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if not isinstance(value, str):
+        raise TypeError(
+            f"framing delimiter must be a string/bytes, got {value!r}"
+        )
+    if _HEX_RE.match(value) and any(c.isdigit() for c in value):
+        return bytes.fromhex(value)
+    raw = value.encode("utf-8")
+    if "\\" in value:
+        # backslash escapes — \r \n \t \xNN \\ — decode like a literal
+        raw = raw.decode("unicode_escape").encode("latin-1")
+    return raw
+
+
+def _bool(value, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.lower() in ("true", "yes", "1", "on"):
+            return True
+        if value.lower() in ("false", "no", "0", "off"):
+            return False
+    raise ValueError(f"framing {name} must be a boolean, got {value!r}")
+
+
+def parse_framing(value) -> FramerSpec | None:
+    """Normalize a framing declaration to a ``FramerSpec``.
+
+    Accepts ``None`` (no framing — the stream is unsegmented), an already
+    parsed ``FramerSpec``, a config-file mapping
+    (``{kind: length-prefix, size: 4, ...}``), or the CLI string form
+    ``"kind:k=v,k=v"`` (e.g. ``"length-prefix:size=3,adjust=1,endian=little"``,
+    ``"delimiter:bytes=0d0a"``, ``"fixed:size=64"``).
+    """
+    if value is None or isinstance(value, FramerSpec):
+        return value
+    if isinstance(value, str):
+        kind, sep, rest = value.partition(":")
+        params: dict = {"kind": kind.strip()}
+        if sep:
+            for pair in rest.split(","):
+                pair = pair.strip()
+                if not pair:
+                    continue
+                k, eq, v = pair.partition("=")
+                if not eq:
+                    raise ValueError(
+                        f"invalid framing param {pair!r} — expected k=v"
+                    )
+                params[k.strip()] = v.strip()
+        value = params
+    if not isinstance(value, dict):
+        raise TypeError(
+            f"framing must be a mapping or 'kind:k=v,...' string, "
+            f"got {value!r}"
+        )
+    kind = str(value.get("kind", "length-prefix")).strip()
+    endian = str(value.get("endian", "big")).strip().lower()
+    if endian not in ("big", "little"):
+        raise ValueError(f"framing endian must be big|little, got {endian!r}")
+    spec = FramerSpec(
+        kind=kind,
+        size=int(value.get("size", 4)),
+        offset=int(value.get("offset", 0)),
+        endian=endian,
+        includes_self=_bool(value.get("includes_self", False), "includes_self"),
+        adjust=int(value.get("adjust", 0)),
+        delimiter=(
+            _delimiter_bytes(value.get("bytes"))
+            if value.get("bytes") is not None
+            else b""
+        ),
+    )
+    if spec.kind == "length-prefix":
+        # 3 is allowed beyond the common 1|2|4|8 — MySQL and Cassandra
+        # v5+ wire formats use three-byte little-endian length fields
+        if spec.size not in (1, 2, 3, 4, 8):
+            raise ValueError(
+                f"length-prefix size must be 1|2|3|4|8, got {spec.size}"
+            )
+        if spec.offset < 0:
+            raise ValueError("length-prefix offset must be >= 0")
+    elif spec.kind == "delimiter":
+        if not spec.delimiter:
+            raise ValueError("delimiter framing requires non-empty bytes")
+    elif spec.kind == "fixed":
+        if spec.size <= 0:
+            raise ValueError("fixed framing size must be > 0")
+    else:
+        raise ValueError(
+            f"unknown framing kind {spec.kind!r} — valid: "
+            "length-prefix, delimiter, fixed"
+        )
+    return spec
+
+
+class GenericFramer:
+    """Incremental frame splitter for a user-declared ``FramerSpec``.
+
+    Same contract as ``FramedStream``: ``feed()`` returns newly completed
+    frames, ``failed`` latches on malformed input and freezes ``buf`` so
+    ``drain()`` replays the unparsed remainder verbatim. One framer per
+    direction per connection — frame boundaries are directional state.
+
+    A ``length-prefix`` frame is ``offset + size + declared + adjust``
+    bytes (``includes_self`` subtracts ``size``). A declared length that
+    resolves to less than the header or more than ``_MAX_FRAME`` marks the
+    stream malformed — the length is attacker-controlled input, never
+    trusted.
+    """
+
+    def __init__(self, spec: FramerSpec):
+        self.spec = spec
+        self.buf = bytearray()
+        self.failed = False
+        self.frames = 0
+
+    def _frame_len(self) -> int | None:
+        spec = self.spec
+        if spec.kind == "fixed":
+            return spec.size if len(self.buf) >= spec.size else None
+        if spec.kind == "delimiter":
+            i = self.buf.find(spec.delimiter)
+            if i < 0:
+                return None
+            return i + len(spec.delimiter)
+        # length-prefix
+        if len(self.buf) < spec.offset + spec.size:
+            return None
+        declared = int.from_bytes(
+            self.buf[spec.offset:spec.offset + spec.size], spec.endian
+        )
+        adjust = spec.adjust - (spec.size if spec.includes_self else 0)
+        flen = spec.offset + spec.size + declared + adjust
+        if declared > _MAX_FRAME or flen < spec.offset + spec.size:
+            return -1
+        if len(self.buf) < flen:
+            return None
+        return flen
+
+    def feed(self, data: bytes) -> list[bytes]:
+        """Consume ``data``; return complete frames extracted this call.
+        Returns ``[]`` once failed — ``buf`` stays frozen so ``drain()``
+        replays the original bytes."""
+        if self.failed:
+            return []
+        self.buf += data
+        out: list[bytes] = []
+        while True:
+            # Unbounded accumulation without a frame boundary is itself
+            # malformed — a delimiter that never arrives would pin an
+            # ever-growing reassembly buffer on a still-open stream.
+            if len(self.buf) > _MAX_FRAME:
+                self.failed = True
+                break
+            flen = self._frame_len()
+            if flen is None:
+                break
+            if flen < 0:
+                self.failed = True
+                break
+            out.append(bytes(self.buf[:flen]))
+            del self.buf[:flen]
+            self.frames += 1
+        return out
+
+    def drain(self) -> bytes:
+        """Return and clear the unparsed remainder."""
         out = bytes(self.buf)
         self.buf.clear()
         return out

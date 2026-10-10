@@ -48,6 +48,11 @@ class RequestContext:
     # Redis wire mode only: decoded command text (space-joined argv) for
     # the `args:` rule matcher. Always None on the HTTP path.
     args: str | None = None
+    # Generic byte-stream payload for the `payload:` rule matcher — tcp
+    # wire mode sets it to the unit bytes decoded as latin-1 (byte-
+    # identity). pg/redis leave it None; the matcher falls back to
+    # `sql`/`args` so `payload:` works there too.
+    payload: str | None = None
 
     # Rule decision (filled by the engine before effects run)
     decision: Decision | None = None

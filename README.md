@@ -450,6 +450,114 @@ first ~80 chars of the command in `path`.
   inline mode aren't unquoted for detection (the raw bytes forward
   untouched either way).
 
+## Generic TCP mode
+
+For wire protocols with **no dedicated module** — MySQL, Kafka,
+Cassandra, Mongo, or your own — `--protocol tcp` runs a generic
+byte-stream proxy. It is a fourth sibling transport: same rules engine,
+fired log, control API, and stats — but deliberately protocol-blind.
+It injects **transport faults** (latency, resets, timeouts, cut streams,
+corrupted bytes, synthetic replies), not protocol-correct errors.
+
+```bash
+microburst --protocol tcp --upstream localhost:3306 --port 13306
+# --port defaults to upstream-port + 10000 (same convention as
+# postgres/redis); control API on :9999, --control-port
+
+nc localhost 13306    # any client — bytes flow to :3306
+```
+
+**Framing** is optional and declared once per proxy, either
+`--framing "<spec>"` or a `framing:` mapping in the config file. Each
+direction gets its own parser:
+
+```yaml
+# length-prefix — offset bytes, then a size-byte integer, then payload.
+# includes_self: the declared length counts the length field itself
+# (Mongo). adjust: extra header bytes after the field.
+framing: {kind: length-prefix, size: 4, endian: big}              # Kafka
+framing: {kind: length-prefix, size: 3, adjust: 1, endian: little} # MySQL (3B len + 1B seq)
+framing: {kind: length-prefix, size: 4, offset: 5, endian: big}   # Cassandra v4 (len @ hdr+5)
+framing: {kind: length-prefix, size: 4, endian: little, includes_self: true}  # Mongo
+# delimiter — frame = bytes up to and including the delimiter
+framing: {kind: delimiter, bytes: "0d0a"}                          # CRLF (hex or "\r\n")
+# fixed — every N bytes is a frame
+framing: {kind: fixed, size: 64}
+```
+
+CLI string form: `--framing "length-prefix:size=3,adjust=1,endian=little"`.
+`size` accepts 1, 2, 3, 4, or 8 (3 exists for MySQL/Cassandra-v5).
+With no `framing:` the stream is **unframed**: no segmentation at all.
+
+**Decision units.** Framed mode evaluates every complete frame in both
+directions — `operation: c2s:frame` on client→server units,
+`operation: s2c:frame` on replies. Unframed mode evaluates rules once
+per connection (`operation: conn`): connection-level rules match on the
+first client→server chunk, and `payload:`/`bytes:` content rules get a
+growing 4 KiB stream prefix to find the protocol's identity — once a
+rule fires (or the prefix fills) the decision is latched and the rest
+of the connection streams with whatever faults armed.
+
+Rule matching: `service: tcp`; `payload:` is a case-insensitive regex on
+the unit bytes decoded as latin-1 (byte-identity — `\x00`-`\xff` map
+1:1). `payload:` also works in pg/redis modes, matching their
+sql/args text.
+
+```yaml
+# latency / reset / timeout — both directions, per unit or per conn
+- service: tcp
+  operation: c2s:frame
+  payload: "BEGIN|START TRANSACTION"
+  latency: {min: 50, max: 200}
+
+- service: tcp
+  operation: conn
+  timeout: true            # hang the link until the client gives up
+
+# client→server dies after 64 KiB of uploads post-match
+- service: tcp
+  operation: c2s:frame
+  cut_upload: {after_bytes: 65536}      # or after_messages: N (framed)
+
+# reply stream dies after 3 frames — mid-response RST
+- service: tcp
+  operation: s2c:frame
+  cut_reply: {after_messages: 3}        # or after_bytes: N
+
+# flip the byte at absolute offset 7 of the client→server stream
+- service: tcp
+  corrupt: {at_bytes: 7, bit: flip}
+
+# hand-crafted reply: answer the client yourself, never forward.
+# then: forward (keep relaying) | close | hold (swallow the rest)
+- service: tcp
+  payload: "PING"
+  respond: {data: "+PONG\r\n", then: forward}
+  # or {hex: "2b504f4e47"}, {base64: "K1BPTkc="}
+```
+
+**Honest limits:**
+
+- `error:` does not apply — there is no protocol error envelope to
+  render. A rule that sets it fires the event with `note: error has no
+  renderer in tcp mode` and the unit forwards untouched. Use a
+  dedicated transport (pg/redis) for real protocol errors, or
+  `respond:` to hand-craft one.
+- No TLS — the proxy never terminates or starts it.
+- No protocol semantics: no operation names, no transaction awareness,
+  no per-message-type matching beyond `payload:` on raw bytes.
+- Malformed framing latches the parser off — the stream falls back to
+  verbatim passthrough and a `malformed … framing — passthrough` note
+  lands in `/fired`.
+- Armed cut thresholds count bytes/frames relayed *after* the rule
+  fires; `corrupt.at_bytes` is an absolute stream offset.
+- Unframed mode re-evaluates rules per chunk until one fires —
+  `probability:`/`sequence:`/`times:` interact per evaluation, so
+  prefer explicit matchers or `deterministic: true` there.
+- Every fired fault lands in `/_microburst/fired` with `service="tcp"`,
+  `operation` = `c2s:frame`/`s2c:frame`/`conn`, `path` = hex preview of
+  the unit's first 32 bytes, and `note` for fallback detail.
+
 ## Real AWS upstreams
 
 ```bash
@@ -602,6 +710,11 @@ A real run (endpoints configurable via `MINISTACK_URL`/`MICROBURST_URL`):
 ## Contributing & community
 
 - [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md)
+- Writing a new wire transport? The seam is `src/microburst/transports.py`:
+  a `TRANSPORTS` entry (name → `run_<name>` path, default ports, upstream
+  schemes) plus a sibling package — the contract is documented in
+  `AGENTS.md`, and `pg/`, `redis/`, `tcp/` are the three reference
+  implementations.
 - This repo adopts [Apache Magpie](https://magpie.apache.org/) for
   agent-assisted maintainership (see `.apache-magpie.lock`).
 

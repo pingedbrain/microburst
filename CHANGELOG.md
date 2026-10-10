@@ -27,6 +27,36 @@ All notable changes to this project will be documented here. Format follows
   are passthrough after subscription (push-mode socket splice); RESP3
   `>` push and `|` attribute frames relay mid-reply without counting
   as the command's reply. New example: `examples/11-redis`.
+- **Transport registry** — `src/microburst/transports.py` formalizes
+  the sibling-transport seam: a `TRANSPORTS` map (name → `run_*` path,
+  default listen/upstream ports, accepted upstream URL schemes, extra
+  option keys) that `cli.py` dispatches `--protocol` through. The
+  per-protocol if/elif collapsed into one shared TCP-mode branch —
+  `http|postgres|redis|tcp` all resolve via the same lookup, and a new
+  wire transport is a registry entry + a sibling package implementing
+  the documented `run_<name>(host, port, upstream_host, upstream_port,
+  control_port, rules, watch_config=None, **options)` contract (see
+  AGENTS.md).
+- **Generic TCP mode** — `microburst --protocol tcp --upstream
+  host:port [--port N] [--framing spec]` runs a byte-stream proxy for
+  protocols with no dedicated module (MySQL/Kafka/Cassandra/Mongo
+  wire), sharing the rules engine, fired log, control API and stats.
+  Optional user-declared framing — `length-prefix` (`size`, `offset`,
+  `endian`, `includes_self`, `adjust`), `delimiter` (`bytes`), `fixed`
+  (`size`) — via `--framing "kind:k=v,..."` or a config `framing:`
+  mapping; default is unframed. New package `src/microburst/tcp/`
+  (duplex frame/chunk pumps, per-unit decisions, armed stream faults).
+  Rule mapping: `service: tcp`, `operation:` = `c2s:frame`/`s2c:frame`/
+  `conn`, `payload:` = case-insensitive latin-1 regex on unit bytes
+  (also works in pg/redis via sql/args fallback). Effects: `latency`,
+  `timeout`/`timeout_ms`, `reset`, `cut_upload`/`cut_reply`
+  `{after_bytes|after_messages}`, `corrupt {at_bytes, bit: flip}`
+  (absolute c2s stream offset), `respond {data|hex|base64, then:
+  forward|close|hold}` (synthetic client reply, unit never forwarded).
+  Honest scope: `error:` has no renderer in tcp mode — the rule fires
+  with `note: error has no renderer in tcp mode` and forwards; no TLS;
+  malformed framing latches the parser off and falls back to verbatim
+  passthrough (noted in `/fired`). New example: `examples/12-tcp`.
 
 ## [0.9.0] - 2026-10-09
 

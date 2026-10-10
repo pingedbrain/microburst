@@ -11,6 +11,7 @@ from aiohttp import web
 from microburst import __version__
 from microburst.app import load_config, make_app
 from microburst.core.pipeline import Microburst
+from microburst.transports import TRANSPORTS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,26 +25,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", "-V", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
-        "--protocol", choices=["http", "postgres", "redis"], default=None,
-        help="data-plane protocol (default: http). 'postgres'/'redis' swap "
-        "the proxy listener to a wire-protocol TCP proxy.",
+        "--protocol", choices=list(TRANSPORTS), default=None,
+        help="data-plane transport (default: http). postgres/redis/tcp "
+        "swap the proxy listener to a wire-protocol TCP proxy.",
     )
     parser.add_argument(
         "--upstream", "-u", default=None,
         help="upstream endpoint (default: config file or "
-        "http://localhost:4566; postgres mode takes host:port, "
-        "default localhost:5432; redis mode takes host:port, "
-        "default localhost:6379)",
+        "http://localhost:4566; TCP modes take host:port — defaults "
+        "localhost:5432 postgres / localhost:6379 redis; tcp requires "
+        "an explicit host:port)",
     )
     parser.add_argument(
         "--port", "-p", type=int, default=None,
         help="listen port (default: 9999 http / 15432 postgres / "
-        "16379 redis)",
+        "16379 redis / upstream-port+10000 tcp)",
     )
     parser.add_argument(
         "--control-port", type=int, default=None,
-        help="control API port in postgres/redis modes (default: 9999; "
+        help="control API port in TCP modes (default: 9999; "
         "ignored in http mode where control shares the data port)",
+    )
+    parser.add_argument(
+        "--framing", default=None,
+        help="tcp mode only: frame segmentation spec — "
+        "'length-prefix:size=4,offset=0,endian=big,includes_self=false,"
+        "adjust=0', 'delimiter:bytes=0d0a', 'fixed:size=64' "
+        "(default: unframed byte stream). Config-file key: framing:",
     )
     parser.add_argument(
         "--host", default=None, help="listen host (default: 127.0.0.1)",
@@ -94,20 +102,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _tcp_upstream(
-    raw: str, schemes: tuple[str, ...], default_port: int
+    raw: str, schemes: tuple[str, ...], default_port: int | None
 ) -> tuple[str, int]:
-    """Parse a TCP upstream: host[:port] or scheme://host[:port]."""
+    """Parse a TCP upstream: host[:port] or scheme://host[:port].
+
+    Empty ``schemes`` accepts any URL scheme (generic tcp mode);
+    ``default_port=None`` makes the port mandatory."""
     from urllib.parse import urlsplit
 
     if "://" in raw:
         parsed = urlsplit(raw)
-        if parsed.scheme not in schemes:
+        if schemes and parsed.scheme not in schemes:
             raise ValueError(
                 f"scheme {parsed.scheme!r} is not {'/'.join(schemes)}"
             )
-        return parsed.hostname or "localhost", parsed.port or default_port
+        port = parsed.port or default_port
+        if port is None:
+            raise ValueError(f"upstream needs an explicit port: {raw!r}")
+        return parsed.hostname or "localhost", port
     host, sep, port = raw.rpartition(":")
     if not sep:
+        if default_port is None:
+            raise ValueError(f"expected host:port, got {raw!r}")
         return raw, default_port
     if not host:
         host = "localhost"
@@ -115,16 +131,6 @@ def _tcp_upstream(
         return host, int(port)
     except ValueError:
         raise ValueError(f"expected host:port, got {raw!r}") from None
-
-
-def _pg_upstream(raw: str) -> tuple[str, int]:
-    """host[:port] or postgresql://host[:port]."""
-    return _tcp_upstream(raw, ("postgres", "postgresql"), 5432)
-
-
-def _redis_upstream(raw: str) -> tuple[str, int]:
-    """host[:port] or redis://host[:port] (no rediss — no TLS)."""
-    return _tcp_upstream(raw, ("redis",), 6379)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,20 +154,25 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config)
 
     protocol = args.protocol or config.get("protocol") or "http"
-    default_port = {"postgres": 15432, "redis": 16379}.get(protocol, 9999)
-    port = args.port or config.get("port") or default_port
+    entry = TRANSPORTS.get(protocol)
+    if entry is None:
+        print(
+            f"unknown protocol {protocol!r}; valid: "
+            f"{', '.join(sorted(TRANSPORTS))}",
+            file=sys.stderr,
+        )
+        return 2
+    port = args.port or config.get("port") or entry.default_port
 
     if args.command == "dashboard":
         from microburst.dashboard import run_dashboard
 
-        connect = args.connect or f"http://127.0.0.1:{port}"
+        connect = args.connect or f"http://127.0.0.1:{port or 9999}"
         return run_dashboard(connect)
 
-    default_upstream = {
-        "postgres": "localhost:5432",
-        "redis": "localhost:6379",
-    }.get(protocol, "http://localhost:4566")
-    upstream = args.upstream or config.get("upstream") or default_upstream
+    upstream = (
+        args.upstream or config.get("upstream") or entry.default_upstream
+    )
     host = args.host or config.get("host") or "127.0.0.1"
     rules = config.get("rules") or []
 
@@ -169,28 +180,60 @@ def main(argv: list[str] | None = None) -> int:
         print("--watch needs --config (the file to watch)", file=sys.stderr)
         return 2
 
-    if protocol in ("postgres", "redis"):
+    if entry.run is not None:
+        # Shared TCP-transport branch: pg/redis/tcp all take a host:port
+        # upstream, run their own listener, and host the control API on
+        # a separate port.
         if args.record or args.replay or args.resign or args.http2:
             print(
                 "warning: --record/--replay/--resign/--http2 are HTTP-only "
                 f"and ignored in {protocol} mode",
                 file=sys.stderr,
             )
-        parse_upstream = (
-            _pg_upstream if protocol == "postgres" else _redis_upstream
-        )
-        try:
-            upstream_host, upstream_port = parse_upstream(upstream)
-        except ValueError as e:
-            print(f"invalid --upstream for {protocol} mode: {e}", file=sys.stderr)
+        if args.framing and "framing" not in entry.options:
+            print(
+                f"warning: --framing is ignored in {protocol} mode",
+                file=sys.stderr,
+            )
+        if upstream is None:
+            print(
+                f"--protocol {protocol} needs --upstream host:port "
+                "(or upstream: in the config file)",
+                file=sys.stderr,
+            )
             return 2
+        try:
+            upstream_host, upstream_port = _tcp_upstream(
+                upstream, entry.schemes, entry.upstream_port
+            )
+        except ValueError as e:
+            print(
+                f"invalid --upstream for {protocol} mode: {e}",
+                file=sys.stderr,
+            )
+            return 2
+        if port is None:
+            # derived listen port — upstream+10000, the convention
+            # pg/redis encode statically (5432→15432, 6379→16379)
+            port = upstream_port + 10000
+            if port > 65535:
+                print(
+                    f"--protocol {protocol} needs --port "
+                    "(derived default would exceed 65535)",
+                    file=sys.stderr,
+                )
+                return 2
         control_port = (
             args.control_port or config.get("control_port") or 9999
         )
-        if protocol == "postgres":
-            from microburst.pg.server import run_postgres
-
-            return run_postgres(
+        options = {}
+        for key in entry.options:
+            value = getattr(args, key, None)
+            if value is None:
+                value = config.get(key)
+            options[key] = value
+        try:
+            return entry.load()(
                 host,
                 port,
                 upstream_host,
@@ -198,18 +241,11 @@ def main(argv: list[str] | None = None) -> int:
                 control_port,
                 rules,
                 watch_config=args.config if args.watch else None,
+                **options,
             )
-        from microburst.redis.server import run_redis
-
-        return run_redis(
-            host,
-            port,
-            upstream_host,
-            upstream_port,
-            control_port,
-            rules,
-            watch_config=args.config if args.watch else None,
-        )
+        except (ValueError, TypeError) as e:
+            print(f"invalid config for {protocol} mode: {e}", file=sys.stderr)
+            return 2
 
     if args.no_resign:
         resign = False

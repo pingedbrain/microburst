@@ -291,6 +291,19 @@ query-marker + required-header disambiguation.
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`
+- ~~Generic TCP transport + registry~~ ✅ — `src/microburst/transports.py`
+  formalizes the sibling-transport seam (`TRANSPORTS` registry: name →
+  `run_*` path, default ports, upstream schemes, extra option keys;
+  `cli.py` dispatches every `--protocol` through it) and
+  `src/microburst/tcp/` is the protocol-blind fourth sibling: duplex
+  frame/chunk pumps, `--framing`/`framing:` user-declared segmentation
+  (length-prefix / delimiter / fixed), `service: tcp` +
+  `payload:` byte-regex matching, `operation:` = `c2s:frame`/`s2c:frame`/
+  `conn`, transport faults only (`latency`/`reset`/`timeout`/
+  `cut_upload`/`cut_reply`/`corrupt`/`respond` — `error:` deliberately
+  has no renderer). What remains: a `slow_upload`-style rate limiter on
+  the stream, per-frame `corrupt.at_message`, TLS termination.
+  `[size:M]`
 - ~~Cassette record/replay~~ ✅ — `--record DIR` captures upstream
   responses keyed by method+path+body; `--replay DIR` serves them
   upstream-free while rules still inject faults.
@@ -313,6 +326,9 @@ query-marker + required-header disambiguation.
 
 ## Explicitly out of scope (for now)
 
-- TCP-level chaos (Toxiproxy does it — we're the layer above).
+- ~~TCP-level chaos~~ — partially landed: `--protocol tcp` covers
+  transport faults for protocols without a dedicated module; what stays
+  out is protocol *semantics* (per-operation errors still need a
+  dedicated transport like pg/redis).
 - Infrastructure faults (kill instances, network partitions — that's FIS).
 - Anything that requires MITM/TLS interception.

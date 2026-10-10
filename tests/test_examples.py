@@ -25,7 +25,8 @@ def test_example_config_parses(path):
         effects = [
             rule.error, rule.latency, rule.timeout_ms, rule.reset,
             rule.response, rule.request, rule.partial_rows,
-            rule.cut_reply_bytes,
+            rule.cut_reply_bytes, rule.cut_reply_messages,
+            rule.corrupt, rule.respond,
         ]
         assert any(e is not None and e is not False for e in effects), (
             f"{path}: rule has matchers but no fault effect"

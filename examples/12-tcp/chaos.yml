@@ -1,0 +1,53 @@
+# Generic TCP wire-mode rules — `microburst --protocol tcp -c chaos.yml`
+#
+# tcp mode is protocol-blind by design: transport faults only, no
+# error: renderer. operation: is c2s:frame | s2c:frame | conn
+# (unframed). payload: is a case-insensitive latin-1 regex on unit
+# bytes. framing: is declared once per proxy — this file pretends the
+# upstream is mysql-ish (3-byte LE length + 1-byte sequence id).
+
+upstream: localhost:3306
+# port: omitted → defaults to upstream_port + 10000 = 13306
+control_port: 9999
+
+framing:
+  kind: length-prefix
+  size: 3            # MySQL packet length is 3 bytes little-endian
+  adjust: 1          # + 1 sequence-id byte after the length field
+  endian: little
+
+rules:
+  # slow handshake / link — conn-level decision on the first bytes.
+  # unframed-style rules (operation: conn) don't apply in framed mode;
+  # this one fires per c2s frame instead.
+  - service: tcp
+    operation: c2s:frame
+    payload: mysql
+    latency: {min: 50, max: 400}
+
+  # dies mid-upload: two client frames relayed, then TCP-abort
+  - service: tcp
+    operation: c2s:frame
+    payload: "for update|for share"
+    probability: 0.2
+    cut_upload: {after_messages: 2}
+
+  # reply stream death: ~4 KiB of upstream bytes, then RST mid-frame
+  - service: tcp
+    operation: s2c:frame
+    probability: 0.05
+    cut_reply: {after_bytes: 4096}
+
+  # packet header corruption — byte 16 of the c2s stream flips once
+  - service: tcp
+    operation: c2s:frame
+    probability: 0.1
+    corrupt: {at_bytes: 16, bit: flip}
+
+  # hand-crafted reply — the escape hatch for protocol-ish answers.
+  # unit never reaches upstream; connection keeps relaying (then:
+  # close drops it, hold swallows the rest of the client's stream).
+  - service: tcp
+    operation: c2s:frame
+    payload: "PING"
+    respond: {hex: "ff0001 02", then: forward}
