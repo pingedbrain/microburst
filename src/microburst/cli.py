@@ -24,23 +24,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", "-V", action="version", version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
-        "--protocol", choices=["http", "postgres"], default=None,
-        help="data-plane protocol (default: http). 'postgres' swaps the "
-        "proxy listener to a PostgreSQL wire TCP proxy.",
+        "--protocol", choices=["http", "postgres", "redis"], default=None,
+        help="data-plane protocol (default: http). 'postgres'/'redis' swap "
+        "the proxy listener to a wire-protocol TCP proxy.",
     )
     parser.add_argument(
         "--upstream", "-u", default=None,
         help="upstream endpoint (default: config file or "
         "http://localhost:4566; postgres mode takes host:port, "
-        "default localhost:5432)",
+        "default localhost:5432; redis mode takes host:port, "
+        "default localhost:6379)",
     )
     parser.add_argument(
         "--port", "-p", type=int, default=None,
-        help="listen port (default: 9999 http / 15432 postgres)",
+        help="listen port (default: 9999 http / 15432 postgres / "
+        "16379 redis)",
     )
     parser.add_argument(
         "--control-port", type=int, default=None,
-        help="control API port in postgres mode (default: 9999; "
+        help="control API port in postgres/redis modes (default: 9999; "
         "ignored in http mode where control shares the data port)",
     )
     parser.add_argument(
@@ -91,26 +93,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _pg_upstream(raw: str) -> tuple[str, int]:
-    """Parse a postgres upstream: host[:port] or postgresql://host[:port]."""
+def _tcp_upstream(
+    raw: str, schemes: tuple[str, ...], default_port: int
+) -> tuple[str, int]:
+    """Parse a TCP upstream: host[:port] or scheme://host[:port]."""
     from urllib.parse import urlsplit
 
     if "://" in raw:
         parsed = urlsplit(raw)
-        if parsed.scheme not in ("postgres", "postgresql"):
+        if parsed.scheme not in schemes:
             raise ValueError(
-                f"scheme {parsed.scheme!r} is not postgres/postgresql"
+                f"scheme {parsed.scheme!r} is not {'/'.join(schemes)}"
             )
-        return parsed.hostname or "localhost", parsed.port or 5432
+        return parsed.hostname or "localhost", parsed.port or default_port
     host, sep, port = raw.rpartition(":")
     if not sep:
-        return raw, 5432
+        return raw, default_port
     if not host:
         host = "localhost"
     try:
         return host, int(port)
     except ValueError:
         raise ValueError(f"expected host:port, got {raw!r}") from None
+
+
+def _pg_upstream(raw: str) -> tuple[str, int]:
+    """host[:port] or postgresql://host[:port]."""
+    return _tcp_upstream(raw, ("postgres", "postgresql"), 5432)
+
+
+def _redis_upstream(raw: str) -> tuple[str, int]:
+    """host[:port] or redis://host[:port] (no rediss — no TLS)."""
+    return _tcp_upstream(raw, ("redis",), 6379)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config)
 
     protocol = args.protocol or config.get("protocol") or "http"
-    default_port = 15432 if protocol == "postgres" else 9999
+    default_port = {"postgres": 15432, "redis": 16379}.get(protocol, 9999)
     port = args.port or config.get("port") or default_port
 
     if args.command == "dashboard":
@@ -143,10 +157,10 @@ def main(argv: list[str] | None = None) -> int:
         connect = args.connect or f"http://127.0.0.1:{port}"
         return run_dashboard(connect)
 
-    default_upstream = (
-        "localhost:5432" if protocol == "postgres"
-        else "http://localhost:4566"
-    )
+    default_upstream = {
+        "postgres": "localhost:5432",
+        "redis": "localhost:6379",
+    }.get(protocol, "http://localhost:4566")
     upstream = args.upstream or config.get("upstream") or default_upstream
     host = args.host or config.get("host") or "127.0.0.1"
     rules = config.get("rules") or []
@@ -155,24 +169,39 @@ def main(argv: list[str] | None = None) -> int:
         print("--watch needs --config (the file to watch)", file=sys.stderr)
         return 2
 
-    if protocol == "postgres":
+    if protocol in ("postgres", "redis"):
         if args.record or args.replay or args.resign or args.http2:
             print(
                 "warning: --record/--replay/--resign/--http2 are HTTP-only "
-                "and ignored in postgres mode",
+                f"and ignored in {protocol} mode",
                 file=sys.stderr,
             )
+        parse_upstream = (
+            _pg_upstream if protocol == "postgres" else _redis_upstream
+        )
         try:
-            upstream_host, upstream_port = _pg_upstream(upstream)
+            upstream_host, upstream_port = parse_upstream(upstream)
         except ValueError as e:
-            print(f"invalid --upstream for postgres mode: {e}", file=sys.stderr)
+            print(f"invalid --upstream for {protocol} mode: {e}", file=sys.stderr)
             return 2
         control_port = (
             args.control_port or config.get("control_port") or 9999
         )
-        from microburst.pg.server import run_postgres
+        if protocol == "postgres":
+            from microburst.pg.server import run_postgres
 
-        return run_postgres(
+            return run_postgres(
+                host,
+                port,
+                upstream_host,
+                upstream_port,
+                control_port,
+                rules,
+                watch_config=args.config if args.watch else None,
+            )
+        from microburst.redis.server import run_redis
+
+        return run_redis(
             host,
             port,
             upstream_host,

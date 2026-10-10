@@ -77,6 +77,7 @@ class Rule:
     headers: dict[str, str] | None = None
     body: str | None = None          # jmespath expression — truthy = match
     sql: str | None = None           # pg wire mode: case-insensitive regex on query text
+    args: str | None = None          # redis wire mode: case-insensitive regex on command text
     rate_count: int | None = None    # at most N fires per rate_window
     rate_window: float | None = None  # seconds
     sequence: tuple[int, int] | None = None  # (fail N, pass M), repeating
@@ -88,6 +89,7 @@ class Rule:
     timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
     partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
+    cut_reply_bytes: int | None = None  # redis wire mode: relay N reply bytes, then TCP-abort
     response: dict | None = None   # post-forward response mutation spec
     request: dict | None = None    # pre-forward client-upload fault spec
     ttl_s: float | None = None     # rule expires N seconds after creation
@@ -98,6 +100,7 @@ class Rule:
     created_ts: float = field(default_factory=time.time)
     _body_expr: Any = field(default=None, repr=False)  # jmespath Parser
     _sql_re: Any = field(default=None, repr=False)     # compiled sql regex
+    _args_re: Any = field(default=None, repr=False)    # compiled args regex
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
@@ -135,6 +138,12 @@ class Rule:
                 # lazy compile — covers Rules built without from_dict
                 self._sql_re = re.compile(self.sql, re.IGNORECASE)
             if info.sql is None or self._sql_re.search(info.sql) is None:
+                return False
+        if self.args is not None:
+            if self._args_re is None:
+                # lazy compile — covers Rules built without from_dict
+                self._args_re = re.compile(self.args, re.IGNORECASE)
+            if info.args is None or self._args_re.search(info.args) is None:
                 return False
         if self.rate_count is not None:
             now = time.time()
@@ -306,6 +315,7 @@ def from_dict(data: dict) -> Rule:
         ),
         body=data.get("body"),
         sql=data.get("sql"),
+        args=data.get("args"),
         rate_count=int(rate["count"]) if isinstance(rate, dict) else None,
         rate_window=float(rate.get("window_s", 60)) if isinstance(rate, dict) else None,
         sequence=(
@@ -333,6 +343,7 @@ def from_dict(data: dict) -> Rule:
             if data.get("partial_rows") is not None
             else None
         ),
+        cut_reply_bytes=_cut_reply_bytes(data.get("cut_reply")),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
         request=data.get("request") if isinstance(data.get("request"), dict) else None,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
@@ -349,6 +360,11 @@ def from_dict(data: dict) -> Rule:
             rule._sql_re = re.compile(rule.sql, re.IGNORECASE)
         except re.error as e:
             raise ValueError(f"invalid sql regex {rule.sql!r}: {e}") from e
+    if rule.args is not None:
+        try:
+            rule._args_re = re.compile(rule.args, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"invalid args regex {rule.args!r}: {e}") from e
     if rule.partial_rows is not None and rule.partial_rows < 0:
         raise ValueError("partial_rows must be >= 0")
     if (
@@ -372,6 +388,8 @@ def to_dict(rule: Rule) -> dict:
         out["body"] = rule.body
     if rule.sql is not None:
         out["sql"] = rule.sql
+    if rule.args is not None:
+        out["args"] = rule.args
     if rule.rate_count is not None:
         out["rate"] = {"count": rule.rate_count, "window_s": rule.rate_window}
     if rule.sequence is not None:
@@ -414,6 +432,8 @@ def to_dict(rule: Rule) -> dict:
         out["reset"] = True
     if rule.partial_rows is not None:
         out["partial_rows"] = rule.partial_rows
+    if rule.cut_reply_bytes is not None:
+        out["cut_reply"] = {"after_bytes": rule.cut_reply_bytes}
     if rule.response:
         out["response"] = rule.response
     if rule.request:
@@ -823,6 +843,22 @@ def _event_mutations(spec: dict) -> tuple:
     return tuple(out)
 
 
+def _cut_reply_bytes(spec) -> int | None:
+    """redis wire mode's response-side abort: `cut_reply: {after_bytes: N}`
+    relays N bytes of the real reply, then TCP-aborts mid-frame."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise TypeError("cut_reply must be a mapping: {after_bytes: N}")
+    n = spec.get("after_bytes")
+    if n is None:
+        raise ValueError("cut_reply requires after_bytes")
+    n = int(n)
+    if n < 0:
+        raise ValueError("cut_reply.after_bytes must be >= 0")
+    return n
+
+
 def _int_or_none(v):
     return int(v) if v is not None else None
 
@@ -849,6 +885,8 @@ def describe(decision: Decision) -> str:
         parts.append("reset")
     if decision.rule.partial_rows is not None:
         parts.append(f"partial_rows:{decision.rule.partial_rows}")
+    if decision.rule.cut_reply_bytes is not None:
+        parts.append(f"cut_reply:{decision.rule.cut_reply_bytes}B")
     xf = decision.request_fault
     if xf is not None:
         # request-side faults act on the upload — they run before the

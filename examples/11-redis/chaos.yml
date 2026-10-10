@@ -1,0 +1,55 @@
+# Redis wire-mode rules — `microburst --protocol redis -c chaos.yml`
+#
+# operation: is the lowercased command verb (get/set/cluster/…) — there
+# is no handshake phase, AUTH/HELLO/SELECT match their verbs. resource:
+# matches a best-effort first key; args: is a case-insensitive regex on
+# the decoded command text (the sql: of redis mode).
+#
+# error.code carries the whole post-`-` line — cluster redirects keep
+# their `slot host:port` tail parseable. error: is never injected inside
+# MULTI (the fired event notes `skipped: in-multi`); latency/reset/
+# timeout still apply there.
+
+upstream: localhost:6379
+port: 16379
+control_port: 9999
+
+rules:
+  # slot migration mid-reshard — does the cluster client follow MOVED?
+  - service: redis
+    operation: get
+    resource: "session:"
+    probability: 0.4
+    error:
+      code: MOVED
+      fields: {slot: 3999, target: "127.0.0.1:7001"}
+
+  # replica just promoted read-only — writes fail post-failover
+  - service: redis
+    args: "^(set|mset|hset|del|incr)"
+    sequence: {fail: 2, pass: 5}
+    error:
+      code: READONLY
+      message: "You can't write against a read only replica."
+
+  # dataset still loading after a restart — every command bounces
+  - service: redis
+    rate: {count: 3, window_s: 10}
+    error:
+      code: LOADING
+      message: "Redis is loading the dataset in memory"
+
+  # memory pressure on writes, occasionally
+  - service: redis
+    args: "^(set|mset|lpush|rpush|sadd)"
+    probability: 0.05
+    error:
+      code: OOM
+      message: "command not allowed when used memory > 'maxmemory'."
+
+  # the server dies mid-reply once in a while — a bulk string cut
+  # in half, then the TCP link aborts
+  - service: redis
+    operation: get
+    probability: 0.05
+    cut_reply: {after_bytes: 16}

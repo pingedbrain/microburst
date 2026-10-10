@@ -368,6 +368,88 @@ in `path`.
   into an open tx needs upstream tx tracking beyond the status byte.
 - Only the first statement of a multi-statement `Query` is classified.
 
+## Redis wire mode
+
+microburst also speaks the **RESP wire protocol** (RESP2 + RESP3
+framing) — a TCP proxy that injects `-CODE` error replies and
+connection faults between your app and any Redis server. Third sibling
+transport: same rules engine, fired log, control API, and stats.
+
+```bash
+microburst --protocol redis --port 16379 --upstream localhost:6379
+# control API is its own HTTP listener (default :9999, --control-port)
+
+redis-cli -p 16379 GET foo
+# → flows through the proxy to localhost:6379
+```
+
+Rule matching for redis: `service: redis`, `operation:` is the
+lowercased command verb (`get`, `set`, `cluster`, …); `resource:`
+matches a best-effort first key (argv[1] for most commands — eval
+scripts, `XREAD`'s `STREAMS` token, numkeys-prefixed and
+subcommand-style verbs resolve their real key position); `args:` is a
+case-insensitive regex against the decoded command text (the `sql:`
+matcher, for commands instead of queries).
+
+```yaml
+# cluster redirect — slot migration mid-reshard. `code` carries the
+# whole post-dash line; clients regex `MOVED <slot> <host:port>`
+- service: redis
+  operation: get
+  error: {code: "MOVED 3999 127.0.0.1:7001"}
+# or composed: error: {code: MOVED, fields: {slot: 3999, target: "127.0.0.1:7001"}}
+
+# replica just promoted read-only — writes fail until the client reconnects
+- operation: set
+  error: {code: READONLY, message: "You can't write against a read only replica."}
+
+# dataset still loading after a restart
+- error: {code: LOADING, message: "Redis is loading the dataset in memory"}
+
+# memory pressure on writes only
+- args: "^(set|mset|hset|lpush)"
+  probability: 0.2
+  error: {code: OOM, message: "command not allowed when used memory > 'maxmemory'."}
+
+# server dies mid-bulk: 10 bytes of the real reply, then TCP abort
+- operation: get
+  cut_reply: {after_bytes: 10}
+
+- operation: get
+  timeout: true     # hang until the client gives up
+  # or: reset: true  # TCP RST
+```
+
+**The MULTI caveat.** `error:` is injected everywhere *except* inside a
+MULTI transaction — a `-ERR` the upstream never saw would desync the
+queued commands (the client believes the command failed to queue;
+upstream still queues it). While `in_multi`, the rule is skipped, the
+command forwards, and the fired event's `note` records
+`skipped: in-multi`. Latency/reset/timeout still apply mid-MULTI — a
+slow or dead link can't diverge upstream state. `EXEC`/`DISCARD`/`RESET`
+close the tracked transaction.
+
+Every fired fault lands in `/_microburst/fired` and `/metrics` with
+`service="redis"`, `operation` = verb, `resource` = first key, and the
+first ~80 chars of the command in `path`.
+
+**Limitations (honest list):**
+
+- Pub/sub and MONITOR are passthrough-only: once a `SUBSCRIBE`/
+  `PSUBSCRIBE`/`SSUBSCRIBE`/`MONITOR` forwards, the connection is a
+  server-push stream and the proxy splices the sockets — no injection
+  while subscribed. RESP3 `>` push and `|` attribute frames arriving
+  mid-reply are relayed but never counted as the command's reply.
+- No TLS (`rediss://` is rejected), no RESP2↔RESP3 translation — the
+  upstream answers in whatever mode the client negotiated via `HELLO`.
+- AUTH is just a command: `operation: auth` matches the verb, but the
+  proxy never synthesizes `+OK` for credentials upstream didn't check.
+- `error:` replies always use the RESP2-style `-` error line (valid in
+  RESP3 too); `!` blob-errors are relayed but never synthesized.
+- Inline commands are tokenized on whitespace only — quoted strings in
+  inline mode aren't unquoted for detection (the raw bytes forward
+  untouched either way).
+
 ## Real AWS upstreams
 
 ```bash

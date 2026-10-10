@@ -4,6 +4,30 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Redis wire mode** — `microburst --protocol redis --port 16379
+  --upstream localhost:6379` runs a TCP proxy speaking RESP (RESP2 +
+  RESP3 framing), sharing the rules engine, fired log, control API
+  (own listener, `--control-port`, default 9999), metrics and stats.
+  New package `src/microburst/redis/` (command/reply frame codec,
+  `-CODE` error renderer, command verb/key detector, asyncio connection
+  handler). Rule mapping: `service: redis`, `operation:` = command verb,
+  `resource:` = best-effort first key, `args:` = case-insensitive regex
+  on decoded command text, `error: {code, message}` where `code`
+  carries the whole post-`-` line (cluster redirects keep their
+  `slot host:port` tail — or compose it via `error: {code: MOVED,
+  fields: {slot, target}}`), `cut_reply: {after_bytes: N}` (N bytes of
+  the real reply, then TCP-abort mid-frame), `timeout: true`.
+  Fidelity semantics: `error:` is never injected inside MULTI — the
+  rule skips and the fired note says `skipped: in-multi`; latency,
+  reset and timeout still apply mid-transaction. Pub/sub and MONITOR
+  are passthrough after subscription (push-mode socket splice); RESP3
+  `>` push and `|` attribute frames relay mid-reply without counting
+  as the command's reply. New example: `examples/11-redis`.
+
 ## [0.9.0] - 2026-10-09
 
 ### Added

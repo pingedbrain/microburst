@@ -277,8 +277,17 @@ query-marker + required-header disambiguation.
   What remains: COPY sub-protocol interception, `25P02`-class
   in-transaction emulation (needs deeper upstream tx tracking), named
   prepared-statement lifecycle (Close/deallocate), replication
-  (`walsender`) protocol, Redis `-MOVED`/`-ASK` and gRPC trailers via
-  the same sibling-transport seam. `[size:L → M remaining]`
+  (`walsender`) protocol, gRPC trailers via the same sibling-transport
+  seam. `[size:L → M remaining]`
+- ~~Redis wire mode~~ ✅ (MVP) — `src/microburst/redis/`, the third
+  sibling transport: RESP2+RESP3 frame codec, `-CODE` error renderer
+  (`MOVED`/`ASK` redirect tails compose from `error.fields.slot`/
+  `target`), `operation:`=verb / `resource:`=first-key / `args:`=regex
+  matching, `cut_reply: {after_bytes}` mid-reply aborts, MULTI-aware
+  error skipping (`skipped: in-multi`), pub/sub+MONITOR push-mode
+  passthrough. What remains: RESP3 `!` blob-error synthesis, real
+  RESP2↔RESP3 translation, TLS (`rediss://`), subscribe-mode fault
+  resumption (interleave faults into the push stream). `[size:M]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`

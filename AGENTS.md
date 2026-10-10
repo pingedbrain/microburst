@@ -33,6 +33,11 @@ extension seams:
   the HTTP pipeline. `proto.py` frame codec, `errors.py` ErrorResponse
   renderer, `detect.py` SQL verb detection, `server.py` asyncio TCP
   proxy (`--protocol postgres`, control API on `--control-port`).
+- `src/microburst/redis/` — Redis wire mode: same sibling-transport
+  shape as pg/. `proto.py` RESP2+RESP3 codec, `errors.py` `-CODE`
+  rendering, `detect.py` verb/first-key extraction, `server.py` asyncio
+  TCP proxy (`--protocol redis`) with MULTI-aware error skipping and
+  pub/sub push-mode passthrough.
 - `src/microburst/framing.py` — defensive message-boundary parsing for
   framed upload bodies (eventstream preludes, gRPC length prefixes),
   used by `request:` faults.
