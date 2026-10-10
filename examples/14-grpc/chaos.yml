@@ -1,0 +1,43 @@
+# gRPC wire-mode rules — `microburst --protocol grpc -c chaos.yml`
+#
+# operation: is the lowercased full :path — /my.pkg.Svc/GetItem →
+# my.pkg.svc/getitem. error.code takes a gRPC name or number
+# (UNAVAILABLE == 14): the status lands in grpc-status trailers on an
+# HTTP 200 — that IS the protocol, real servers never map grpc errors
+# to non-200. timeout: true parks the call so the client's own deadline
+# fires (it sees DEADLINE_EXCEEDED client-side).
+
+upstream: localhost:50051
+port: 15051
+control_port: 9999
+
+rules:
+  # trailers-only UNAVAILABLE on a third of GetItem calls — the shape a
+  # server sends when the call fails before the handler writes anything
+  - service: grpc
+    operation: my.pkg.svc/getitem
+    probability: 0.3
+    error:
+      code: UNAVAILABLE
+      message: "item service is overloaded"
+
+  # Watch streams die mid-flow: three real messages, then trailers
+  # blame a quota — partial data + failed status, the honest shape
+  - service: grpc
+    operation: my.pkg.svc/watch
+    probability: 0.5
+    partial_messages: 3
+    error:
+      code: RESOURCE_EXHAUSTED
+
+  # one in five slow lookups stalls forever — the client's deadline
+  # fires and it sees DEADLINE_EXCEEDED, exactly like a hung server
+  - service: grpc
+    operation: my.pkg.svc/slowlookup
+    probability: 0.2
+    timeout: true
+
+  # rare mid-call abort: RST_STREAM kills the stream, the conn survives
+  - service: grpc
+    probability: 0.05
+    reset: true

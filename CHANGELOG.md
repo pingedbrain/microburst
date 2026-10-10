@@ -8,6 +8,30 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **gRPC wire mode** — `microburst --protocol grpc --port 15051
+  --upstream localhost:50051` runs an h2c (cleartext HTTP/2) proxy for
+  gRPC endpoints, sharing the rules engine, fired log, control API
+  (`--control-port`, default 9999), metrics and stats. New package
+  `src/microburst/grpc/` (thin helpers over `h2.connection.H2Connection`
+  — two state machines bridging client and upstream streams — plus an
+  asyncio connection handler); `h2>=4` is now a direct dependency.
+  Rule mapping: `service: grpc`, `operation:` = the lowercased full
+  `:path` (`/pkg.Svc/Method` → `pkg.svc/method`), `resource:`/`args:`/
+  `payload:` = the raw `:path`. `error: {code, message}` renders the
+  trailers-only response (HTTP 200 + `grpc-status` + `grpc-message` +
+  END_STREAM — the real early-error shape; codes accept names or
+  numbers, `error.status` is ignored with a note). New rule key
+  `partial_messages: N` relays N real upstream messages then lands the
+  configured trailers (mid-stream error) or RST_STREAM when no `error:`
+  is set. Effects: `latency`, `timeout`/`timeout_ms` (`timeout: true`
+  parks the call — inbound DATA stays unacknowledged for real
+  flow-control backpressure — and the client's own deadline fires),
+  `reset` (RST_STREAM INTERNAL_ERROR, per-RPC abort),
+  `cut_reply`/`cut_upload` `{after_bytes|after_messages}` (TCP-level
+  mid-stream death). Client RST propagates upstream; upstream
+  RST/GOAWAY propagates downstream. h2c only — no TLS (`grpcs://`
+  rejected); non-gRPC h2 streams proxy with `error:` skipped
+  (`skipped: non-grpc content-type`). New example: `examples/14-grpc`.
 - **MySQL wire mode** — `microburst --protocol mysql --port 13306
   --upstream localhost:3306` runs a TCP proxy speaking the MySQL
   client/server protocol (MySQL and MariaDB upstreams), sharing the

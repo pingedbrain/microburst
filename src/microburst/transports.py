@@ -102,6 +102,18 @@ TRANSPORTS: dict[str, Transport] = {
         schemes=("mysql", "mariadb"),
         upstream_port=3306,
     ),
+    "grpc": Transport(
+        name="grpc",
+        help="gRPC wire proxy — h2c (cleartext HTTP/2) data plane: "
+        "trailers-only grpc-status errors, partial_messages mid-stream "
+        "faults, RST_STREAM aborts, stalls with real flow-control "
+        "backpressure. No TLS — grpcs:// upstreams are rejected.",
+        run="microburst.grpc.server:run_grpc",
+        default_port=15051,
+        default_upstream="localhost:50051",
+        schemes=("grpc",),
+        upstream_port=50051,
+    ),
     "tcp": Transport(
         name="tcp",
         help="generic byte-stream proxy for protocols without a "

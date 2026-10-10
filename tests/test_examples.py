@@ -25,6 +25,7 @@ def test_example_config_parses(path):
         effects = [
             rule.error, rule.latency, rule.timeout_ms, rule.reset,
             rule.response, rule.request, rule.partial_rows,
+            rule.partial_messages,
             rule.cut_reply_bytes, rule.cut_reply_messages,
             rule.corrupt, rule.respond,
         ]

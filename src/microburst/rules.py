@@ -111,6 +111,7 @@ class Rule:
     timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
     partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
+    partial_messages: int | None = None  # grpc mode: relay N reply messages, then trailers/RST_STREAM
     cut_reply_bytes: int | None = None  # wire modes: relay N reply bytes, then TCP-abort
     cut_reply_messages: int | None = None  # tcp wire mode: relay N reply frames, then TCP-abort
     corrupt: CorruptSpec | None = None  # tcp wire mode: flip stream byte at offset
@@ -395,6 +396,11 @@ def from_dict(data: dict) -> Rule:
             if data.get("partial_rows") is not None
             else None
         ),
+        partial_messages=(
+            int(data["partial_messages"])
+            if data.get("partial_messages") is not None
+            else None
+        ),
         cut_reply_bytes=cut_reply_bytes,
         cut_reply_messages=cut_reply_messages,
         corrupt=_corrupt(data.get("corrupt")),
@@ -429,6 +435,8 @@ def from_dict(data: dict) -> Rule:
             ) from e
     if rule.partial_rows is not None and rule.partial_rows < 0:
         raise ValueError("partial_rows must be >= 0")
+    if rule.partial_messages is not None and rule.partial_messages < 0:
+        raise ValueError("partial_messages must be >= 0")
     if (
         rule.error is not None
         and rule.error.fields is not None
@@ -497,6 +505,8 @@ def to_dict(rule: Rule) -> dict:
         out["reset"] = True
     if rule.partial_rows is not None:
         out["partial_rows"] = rule.partial_rows
+    if rule.partial_messages is not None:
+        out["partial_messages"] = rule.partial_messages
     if rule.cut_reply_bytes is not None or rule.cut_reply_messages is not None:
         out["cut_reply"] = {
             k: v
@@ -1030,6 +1040,8 @@ def describe(decision: Decision) -> str:
         parts.append("reset")
     if decision.rule.partial_rows is not None:
         parts.append(f"partial_rows:{decision.rule.partial_rows}")
+    if decision.rule.partial_messages is not None:
+        parts.append(f"partial_messages:{decision.rule.partial_messages}")
     if decision.rule.cut_reply_bytes is not None:
         parts.append(f"cut_reply:{decision.rule.cut_reply_bytes}B")
     if decision.rule.cut_reply_messages is not None:

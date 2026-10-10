@@ -662,6 +662,91 @@ sql/args text.
   `operation` = `c2s:frame`/`s2c:frame`/`conn`, `path` = hex preview of
   the unit's first 32 bytes, and `note` for fallback detail.
 
+## gRPC wire mode
+
+microburst also proxies **gRPC over h2c** — `--protocol grpc` runs a
+cleartext-HTTP/2 data plane (two `h2` state machines bridging client
+and upstream streams; prior-knowledge h2c on both legs, the common
+local-dev setup). It is a sixth sibling transport: same rules engine,
+fired log, control API, and stats.
+
+```bash
+microburst --protocol grpc --port 15051 --upstream localhost:50051
+# control API on :9999, --control-port
+
+grpcurl -plaintext localhost:15051 list        # or point your app at it
+```
+
+The decision unit is **one RPC call**, taken when the request HEADERS
+arrive: `operation:` is the lowercased full method path
+(`/helloworld.Greeter/SayHello` → `helloworld.greeter/sayhello`),
+`resource:`/`args:`/`payload:` match the raw `:path`, `service: grpc`.
+
+Where the status lands is the fidelity: gRPC errors ride **trailers**
+over HTTP 200 — never a non-200 (that would be a transport failure;
+`error.status` is ignored and the event notes it).
+
+```yaml
+rules:
+  # trailers-only: the shape servers send when a call fails before the
+  # handler writes — one HEADERS frame, 200 + grpc-status + END_STREAM
+  - service: grpc
+    operation: my.pkg.svc/getitem
+    error: {code: UNAVAILABLE}       # name or number (14) both work
+
+  # mid-stream: 3 real messages relay, then trailers say the call died
+  - operation: my.pkg.svc/watch
+    partial_messages: 3
+    error: {code: RESOURCE_EXHAUSTED, message: "quota mid-stream"}
+
+  # partial_messages alone → RST_STREAM after N messages
+  - operation: my.pkg.svc/tail
+    partial_messages: 10
+
+  # the server stalls — nothing answers; the client's own deadline
+  # fires and it sees DEADLINE_EXCEEDED client-side
+  - operation: my.pkg.svc/slow
+    timeout: true                    # or timeout_ms: 2000 to stall-then-serve
+
+  # per-RPC abort: RST_STREAM(INTERNAL_ERROR)
+  - operation: my.pkg.svc/method
+    reset: true
+
+  # reply stream dies mid-message at TCP level — the link drops
+  - operation: my.pkg.svc/export
+    cut_reply: {after_bytes: 1024}   # or after_messages
+```
+
+- Flow control is coupled: inbound DATA is only acknowledged once
+  forwarded, so a `timeout: true` call drains the client's send window
+  — exactly what a stalled server looks like.
+- Unary, server-streaming, client-streaming and bidi calls all proxy;
+  `cut_upload:` cuts the client→server direction the same way.
+- A client RST propagates upstream; an upstream RST/GOAWAY propagates
+  downstream. `reset:` is always a per-RPC RST_STREAM — connection-wide
+  death is `cut_*`'s job.
+- Every fired fault lands in `/_microburst/fired` with
+  `service="grpc"`, `operation` = method path, `path` = `:path`, and
+  `note` for fallbacks (`malformed grpc prefix — fell back to bytes`,
+  `skipped: non-grpc content-type`, …).
+
+**Honest limits:**
+
+- **h2c only** — no TLS termination: `grpcs://` upstreams are rejected
+  and TLS-expecting clients get a dead link. Use `grpcurl -plaintext`.
+- `latency`/`timeout_ms` sleep the connection's read pump while they
+  run — on a multiplexed connection other streams wait too (MVP
+  tradeoff; per-stream timers are the follow-up).
+- h2 extension frames microburst doesn't model — PRIORITY trees,
+  PUSH_PROMISE, unknown frames — are dropped, not relayed.
+- Non-gRPC h2 traffic (REST-over-h2, WebSockets-over-h2) proxies
+  transparently; `error:` skips it since a grpc-status trailer isn't a
+  real error shape there — transport faults (latency/reset/timeout/
+  cuts) still apply.
+- `respond:`/`corrupt:`/`response:`/pg's `partial_rows`,
+  `slow_upload`/`corrupt_upload` don't apply in grpc mode — noted in
+  the fired event when set.
+
 ## Real AWS upstreams
 
 ```bash

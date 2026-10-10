@@ -277,8 +277,7 @@ query-marker + required-header disambiguation.
   What remains: COPY sub-protocol interception, `25P02`-class
   in-transaction emulation (needs deeper upstream tx tracking), named
   prepared-statement lifecycle (Close/deallocate), replication
-  (`walsender`) protocol, gRPC trailers via the same sibling-transport
-  seam. `[size:L → M remaining]`
+  (`walsender`) protocol. `[size:L → M remaining]`
 - ~~Redis wire mode~~ ✅ (MVP) — `src/microburst/redis/`, the third
   sibling transport: RESP2+RESP3 frame codec, `-CODE` error renderer
   (`MOVED`/`ASK` redirect tails compose from `error.fields.slot`/
@@ -305,6 +304,21 @@ query-marker + required-header disambiguation.
   `COM_STMT_FETCH` cursor interception and replication/binlog
   streams (currently spliced passthrough), TLS termination, LOAD
   DATA INFILE fault injection. `[size:M]`
+- ~~gRPC wire mode~~ ✅ (MVP) — `src/microburst/grpc/`, the h2c
+  sibling transport (`--protocol grpc`, default listen 15051, upstream
+  `grpc://` scheme only — no TLS termination). One decision per RPC at
+  request HEADERS (`operation:` = lowercased `/pkg.Svc/Method` path);
+  `error:` renders the trailers-only shape (`grpc-status`/`grpc-message`
+  over HTTP 200 — names or numbers), `partial_messages` + `error:` lands
+  the configured trailers after N real messages (mid-stream error),
+  `partial_messages` alone → RST_STREAM, `reset:` → RST_STREAM per-RPC,
+  `timeout: true` parks the call with real flow-control backpressure
+  (inbound DATA unacked — client deadline → DEADLINE_EXCEEDED
+  client-side), `cut_reply`/`cut_upload` for TCP-level mid-stream death.
+  What remains: TLS (`grpcs`/TLS clients), per-stream timing wheels
+  (latency/timeout currently park the connection's read pump), h2
+  extension-frame relay (PRIORITY/PUSH_PROMISE), grpc-web transcoding.
+  `[size:M]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`

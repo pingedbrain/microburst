@@ -49,6 +49,13 @@ extension seams:
   (`--protocol tcp`) for protocols with no dedicated module: duplex
   frame/chunk pumps, transport faults only (no `error:` renderer —
   `respond:` is the escape hatch).
+- `src/microburst/grpc/` — gRPC wire mode over h2c (cleartext HTTP/2,
+  `--protocol grpc`): same sibling-transport shape. `proto.py` h2
+  helpers + gRPC status-code map / trailer builders; `server.py` runs
+  two `h2` state machines bridged per stream — trailers-only and
+  mid-stream (`partial_messages`) error injection, RST_STREAM aborts,
+  stalls with real flow-control backpressure (inbound DATA is acked
+  only once forwarded). No TLS — `grpcs://` is rejected.
 - `src/microburst/transports.py` — `TRANSPORTS` registry: the seam
   `cli.py` dispatches `--protocol` through (name → `run_*` path,
   default ports, upstream schemes, extra option keys).
