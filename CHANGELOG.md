@@ -8,6 +8,40 @@ All notable changes to this project will be documented here. Format follows
 
 ### Added
 
+- **MySQL wire mode** — `microburst --protocol mysql --port 13306
+  --upstream localhost:3306` runs a TCP proxy speaking the MySQL
+  client/server protocol (MySQL and MariaDB upstreams), sharing the
+  rules engine, fired log, control API (own listener,
+  `--control-port`, default 9999), metrics and stats. New package
+  `src/microburst/mysql/` (3-byte-LE + sequence-id packet codec with
+  multi-packet reassembly, ERR_Packet renderer, command/SQL detector
+  reusing pg's verb lexer, asyncio connection handler). Rule mapping:
+  `service: mysql`, `operation:` = SQL verb for `COM_QUERY` /
+  `stmt_*` for prepared-statement commands / `com_*` for the rest /
+  `startup` for the connect handshake, `resource:` = table-ish token
+  (database name for `com_init_db`), `sql:` = case-insensitive regex
+  on query text — applies to `COM_STMT_PREPARE` text and to
+  `COM_STMT_EXECUTE` via per-connection statement-id→SQL tracking.
+  `error:` renders a real ERR_Packet (`0xFF errno '#' sqlstate
+  message`): new `error.errno` key fills the SQLSTATE from a curated
+  map, `error.code` is read as the SQLSTATE and fills the errno;
+  defaults are `1105`/`HY000` (`ER_UNKNOWN_ERROR`). `severity: FATAL`
+  closes after the ERR — the only error class safe inside a
+  transaction; non-fatal errors inject only while idle
+  (`SERVER_STATUS_IN_TRANS` tracked from relayed status flags), else
+  the rule skips with `skipped: in-transaction`. Startup faults send
+  the ERR as the very first packet instead of a greeting (the real
+  1040/1129 refusal shape — upstream untouched). Effects: `latency`,
+  `timeout`/`timeout_ms`, `reset`, `partial_rows` (N real row packets
+  then TCP-abort), `cut_reply: {after_bytes|after_messages}`. TLS
+  refused (`CLIENT_SSL`/`CLIENT_COMPRESS` stripped from the relayed
+  greeting; an unsolicited SSLRequest gets a real `1043 Bad
+  handshake` ERR + close); auth fully passthrough including
+  auth-switch/more-data rounds; LOCAL INFILE sub-dialog relayed;
+  multi-statement replies relay all sub-resultsets
+  (`SERVER_MORE_RESULTS_EXISTS`-aware); `COM_STMT_FETCH` and the
+  replication/binlog command family splice to passthrough. New
+  example: `examples/13-mysql`.
 - **Redis wire mode** — `microburst --protocol redis --port 16379
   --upstream localhost:6379` runs a TCP proxy speaking RESP (RESP2 +
   RESP3 framing), sharing the rules engine, fired log, control API

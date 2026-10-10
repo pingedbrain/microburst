@@ -92,6 +92,16 @@ TRANSPORTS: dict[str, Transport] = {
         schemes=("redis",),
         upstream_port=6379,
     ),
+    "mysql": Transport(
+        name="mysql",
+        help="MySQL/MariaDB wire proxy — errno+SQLSTATE ERR_Packet "
+        "injection, tx-aware skipping, auth passthrough, partial_rows.",
+        run="microburst.mysql.server:run_mysql",
+        default_port=13306,
+        default_upstream="localhost:3306",
+        schemes=("mysql", "mariadb"),
+        upstream_port=3306,
+    ),
     "tcp": Transport(
         name="tcp",
         help="generic byte-stream proxy for protocols without a "

@@ -65,7 +65,8 @@ class FaultError:
     status: int | None = None    # None → modeled httpStatusCode, else 400
     message: str | None = None
     fields: dict | None = None   # extra error-shape members, rendered per protocol
-    severity: str | None = None  # pg wire mode only: ERROR / FATAL / PANIC
+    severity: str | None = None  # pg/mysql wire modes only: FATAL = close after the error packet
+    errno: int | None = None     # mysql wire mode only: ERR_Packet error number
 
 
 @dataclass
@@ -335,6 +336,8 @@ def from_dict(data: dict) -> Rule:
         sqlstate = error.pop("sqlstate", None)
         if error.get("code") is None and sqlstate is not None:
             error["code"] = sqlstate
+        if error.get("errno") is not None:
+            error["errno"] = int(error["errno"])
     latency = data.get("latency")
     rate = data.get("rate")
     sequence = data.get("sequence")
@@ -470,6 +473,7 @@ def to_dict(rule: Rule) -> dict:
                 "message": rule.error.message,
                 "fields": rule.error.fields,
                 "severity": rule.error.severity,
+                "errno": rule.error.errno,
             }.items()
             if v is not None
         }
@@ -1013,7 +1017,10 @@ def describe(decision: Decision) -> str:
         parts.append(f"latency:{name}{decision.latency_ms:.0f}ms")
     if decision.error:
         sev = f"/{decision.error.severity}" if decision.error.severity else ""
-        parts.append(f"error:{decision.error.code}{sev}")
+        if decision.error.code is None and decision.error.errno is not None:
+            parts.append(f"error:errno={decision.error.errno}{sev}")
+        else:
+            parts.append(f"error:{decision.error.code}{sev}")
     if decision.timeout_ms:
         if decision.timeout_ms < 0:
             parts.append("timeout")

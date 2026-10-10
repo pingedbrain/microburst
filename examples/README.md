@@ -30,6 +30,9 @@ curl http://localhost:9999/_microburst/fired
 | 08 | [upload-cut](08-upload-cut/) | The link dies mid-`PutObject` — does the SDK retry connection errors on its write path? |
 | 09 | [eventstream-cut](09-eventstream-cut/) | The link dies *between* frames of a framed upload — does the SDK treat it as a network cut, not a truncated body? |
 | 10 | [postgres](10-postgres/) | `--protocol postgres`: SQLSTATE-correct faults on the PG wire — does the app retry `40001` but not `23505`? (needs a Postgres upstream, not an emulator) |
+| 11 | [redis](11-redis/) | `--protocol redis`: `-CODE` replies on the RESP wire — does the client follow `MOVED`, back off on `LOADING`, survive `READONLY`? (needs a Redis upstream) |
+| 12 | [tcp](12-tcp/) | `--protocol tcp`: protocol-blind byte-stream chaos — cut uploads/replies, flipped bytes, synthetic replies — for protocols with no dedicated module |
+| 13 | [mysql](13-mysql/) | `--protocol mysql`: errno+SQLSTATE `ERR_Packet`s on the MySQL wire — does the app retry `1213`/`1205` but not `1062`? (needs a MySQL/MariaDB upstream) |
 
 Also in this directory:
 

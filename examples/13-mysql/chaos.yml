@@ -1,0 +1,51 @@
+# MySQL wire-mode rules — `microburst --protocol mysql -c chaos.yml`
+#
+# operation: is the lowercased SQL verb for COM_QUERY (select/insert/
+# begin/…), stmt_* for extended-protocol commands, com_* for the rest,
+# or `startup` for the connect handshake. sql: is a case-insensitive
+# regex on the query text — it also matches COM_STMT_EXECUTE via the
+# proxy's prepared-statement id→SQL tracking.
+#
+# error.errno fills sqlstate from a curated map; error.code IS the
+# sqlstate and fills errno. A non-fatal error: is injected only while
+# the session is idle — never inside an open transaction (the fired
+# event notes `skipped: in-transaction`). severity: FATAL sends the
+# ERR then closes — safe anywhere.
+
+upstream: localhost:3306
+port: 13306
+control_port: 9999
+
+rules:
+  # every 4th connection refused like a maxed-out mysqld — the ERR is
+  # the first packet instead of a greeting, upstream never dialed
+  - service: mysql
+    operation: startup
+    sequence: {fail: 1, pass: 3}
+    error:
+      errno: 1040
+      code: "08004"
+      message: "Too many connections"
+
+  # InnoDB deadlock on order writes — errno+sqlstate, the exact pair
+  # drivers retry on
+  - service: mysql
+    sql: "into orders"
+    probability: 0.3
+    error:
+      errno: 1213
+      code: "40001"
+      message: "Deadlock found when trying to get lock; try restarting transaction"
+
+  # realistic lock-wait timeout on slow reads: latency, then 1205
+  - operation: select
+    probability: 0.15
+    latency: {min: 800, max: 1500}
+    error:
+      errno: 1205
+      message: "Lock wait timeout exceeded; try restarting transaction"
+
+  # the server dies mid-ResultSet once in a while
+  - operation: select
+    probability: 0.05
+    partial_rows: 3

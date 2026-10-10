@@ -38,6 +38,13 @@ extension seams:
   rendering, `detect.py` verb/first-key extraction, `server.py` asyncio
   TCP proxy (`--protocol redis`) with MULTI-aware error skipping and
   pub/sub push-mode passthrough.
+- `src/microburst/mysql/` — MySQL wire mode: same sibling-transport
+  shape as pg/. `proto.py` 3B-LE+seq packet codec (multi-packet
+  reassembly, greeting/handshake-response parsers), `errors.py`
+  ERR_Packet renderer (errno↔SQLSTATE defaults), `detect.py` command
+  + SQL detection (reuses pg's `sql_facts`), `server.py` asyncio TCP
+  proxy (`--protocol mysql`) with tx-aware error skipping, prepared
+  stmt-id→SQL tracking, auth passthrough, TLS-capability stripping.
 - `src/microburst/tcp/` — generic byte-stream wire mode
   (`--protocol tcp`) for protocols with no dedicated module: duplex
   frame/chunk pumps, transport faults only (no `error:` renderer —

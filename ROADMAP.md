@@ -288,6 +288,23 @@ query-marker + required-header disambiguation.
   passthrough. What remains: RESP3 `!` blob-error synthesis, real
   RESP2↔RESP3 translation, TLS (`rediss://`), subscribe-mode fault
   resumption (interleave faults into the push stream). `[size:M]`
+- ~~MySQL wire mode~~ ✅ (MVP) — `src/microburst/mysql/`, a fourth
+  dedicated sibling transport (`--protocol mysql`, default listen
+  13306, upstream `mysql`/`mariadb` schemes): 3B-LE+seq packet codec
+  with multi-packet reassembly, ERR_Packet renderer with
+  errno↔SQLSTATE defaulting (`error.errno`/`error.code`,
+  1105/`HY000` fallback), `operation:` = verb/`stmt_*`/`com_*`/
+  `startup`, per-connection prepared-statement id→SQL tracking so
+  `sql:` matches `COM_STMT_EXECUTE`, tx-aware non-fatal error
+  skipping (`skipped: in-transaction`), FATAL close-after-ERR,
+  `partial_rows` + `cut_reply`, startup ERR-as-first-packet refusals
+  (the real 1040/1129 shape), auth passthrough with
+  TLS/compression capability stripping, multi-statement relay
+  (`SERVER_MORE_RESULTS_EXISTS`-aware). What remains: the
+  post-handshake-response refusal shape (per-user limits, `1045`),
+  `COM_STMT_FETCH` cursor interception and replication/binlog
+  streams (currently spliced passthrough), TLS termination, LOAD
+  DATA INFILE fault injection. `[size:M]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`

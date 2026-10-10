@@ -26,20 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--protocol", choices=list(TRANSPORTS), default=None,
-        help="data-plane transport (default: http). postgres/redis/tcp "
-        "swap the proxy listener to a wire-protocol TCP proxy.",
+        help="data-plane transport (default: http). postgres/redis/"
+        "mysql/tcp swap the proxy listener to a wire-protocol TCP "
+        "proxy.",
     )
     parser.add_argument(
         "--upstream", "-u", default=None,
         help="upstream endpoint (default: config file or "
         "http://localhost:4566; TCP modes take host:port — defaults "
-        "localhost:5432 postgres / localhost:6379 redis; tcp requires "
-        "an explicit host:port)",
+        "localhost:5432 postgres / localhost:6379 redis / "
+        "localhost:3306 mysql; tcp requires an explicit host:port)",
     )
     parser.add_argument(
         "--port", "-p", type=int, default=None,
         help="listen port (default: 9999 http / 15432 postgres / "
-        "16379 redis / upstream-port+10000 tcp)",
+        "16379 redis / 13306 mysql / upstream-port+10000 tcp)",
     )
     parser.add_argument(
         "--control-port", type=int, default=None,

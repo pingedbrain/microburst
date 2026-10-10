@@ -450,11 +450,115 @@ first ~80 chars of the command in `path`.
   inline mode aren't unquoted for detection (the raw bytes forward
   untouched either way).
 
+## MySQL wire mode
+
+microburst also speaks the **MySQL client/server protocol** — a TCP
+proxy that injects errno+SQLSTATE-correct `ERR_Packet`s and connection
+faults between your app and any MySQL or MariaDB server. Fourth sibling
+transport: same rules engine, fired log, control API, and stats.
+
+```bash
+microburst --protocol mysql --port 13306 --upstream localhost:3306
+# control API is its own HTTP listener (default :9999, --control-port)
+
+mysql -h 127.0.0.1 -P 13306 -u app -e "select 1"
+# → flows through the proxy to localhost:3306
+```
+
+Rule matching for mysql: `service: mysql`, `operation:` is the
+lowercased SQL verb for `COM_QUERY` (`select`, `insert`, `begin`, …),
+`stmt_*` for extended-protocol commands (`stmt_prepare`,
+`stmt_execute`, `stmt_close`, `stmt_reset`, `stmt_fetch`,
+`stmt_send_long_data`), `com_*` for the rest (`com_ping`, `com_init_db`,
+…), or `startup` for the connect handshake. `resource:` matches a
+table-ish token (and the database name for `com_init_db`); `sql:` is a
+case-insensitive regex against the query text — it matches
+`COM_STMT_PREPARE` text *and* `COM_STMT_EXECUTE`, because the proxy
+tracks prepared statement-id → SQL per connection.
+
+Errors carry both halves MySQL drivers classify on:
+`error: {errno: 1064}` fills the SQLSTATE from a curated map (`42000`),
+`error: {code: "40001"}` reads `code` as the SQLSTATE and fills the
+errno (`1213`). Neither given → `1105`/`HY000` (`ER_UNKNOWN_ERROR`).
+
+```yaml
+# refuse connections like a maxed-out mysqld — the ERR is the very
+# first packet instead of a greeting, then the link closes (the real
+# 1040 shape: mysqld can't even create the session)
+- service: mysql
+  operation: startup
+  error: {errno: 1040, code: "08004", message: "Too many connections"}
+
+# syntax error — the errno maps to SQLSTATE 42000 automatically
+- operation: select
+  error: {errno: 1064, message: "You have an error in your SQL syntax"}
+
+# deadlock — the errno+SQLSTATE pair InnoDB actually sends
+- sql: "into orders"
+  error: {errno: 1213, code: "40001", message: "Deadlock found when trying to get lock"}
+
+# lock wait timeout
+- operation: update
+  error: {errno: 1205, message: "Lock wait timeout exceeded"}
+
+# server dies mid-ResultSet: 2 real row packets, then the TCP link aborts
+- operation: select
+  partial_rows: 2
+
+- operation: select
+  timeout: true     # hang until the client gives up
+  # or: reset: true  # TCP RST
+```
+
+**The transaction rule.** `SERVER_STATUS_IN_TRANS` in the status flags
+of every relayed OK/EOF packet tracks whether the session sits inside
+an open transaction — pg mode's `Z`-byte analog. A non-fatal `error:`
+is injected **only while idle**: inside a transaction the rule is
+skipped, the command forwards untouched, and the fired event's `note`
+records `skipped: in-transaction` (a real `1213` rolls the whole tx
+back — an injected one would claim a rollback upstream never
+performed). `severity: FATAL` (or `PANIC`) sends the ERR then closes
+the connection — the only error class safe inside a tx, because a dead
+connection can't diverge upstream state.
+
+Startup faults fire **before** the greeting: a server that can't create
+the session sends the ERR as the very first packet (`1040`/`1129`-class
+refusals) — upstream is never touched. Multi-statement replies relay
+every sub-resultset (`SERVER_MORE_RESULTS_EXISTS`-aware), though only
+the first statement's verb is classified. Every fired fault lands in
+`/_microburst/fired` and `/metrics` with `service="mysql"`, `operation`
+as above, and the first ~80 chars of SQL (or the command name) in
+`path`.
+
+**Limitations (honest list):**
+
+- Auth is passthrough only — the full greeting → handshake-response →
+  auth-switch/more-data → OK/ERR exchange relays verbatim, so
+  `caching_sha2_password` and `mysql_native_password` both work; the
+  proxy never synthesizes auth success.
+- No TLS: `CLIENT_SSL` and `CLIENT_COMPRESS` are stripped from the
+  relayed greeting (compression would re-frame every later packet) —
+  clients fall back to plaintext or refuse client-side, exactly as
+  against a mysqld without SSL. A client that sends an SSLRequest
+  anyway gets a real `1043 Bad handshake` ERR and a close.
+  `mysqls://`-style upstream URLs are rejected.
+- `COM_STMT_FETCH` cursor flows and the replication family
+  (`COM_BINLOG_DUMP`, `COM_BINLOG_DUMP_GTID`, `COM_REGISTER_SLAVE`,
+  `COM_TABLE_DUMP`) are streaming sub-protocols — after forwarding, the
+  proxy splices the sockets and stops deciding.
+- `error:` can't be injected on commands with no server reply
+  (`COM_STMT_CLOSE`, `COM_STMT_SEND_LONG_DATA`) — the rule fires with
+  `note: skipped: command has no reply` and the command forwards.
+- `error.fields` has no wire slot in ERR_Packet — accepted and ignored.
+- A refused connection has two real shapes; only the pre-greeting one
+  is synthesized. Refusals arriving *after* the handshake response
+  (per-user limits, `1045` access-denied) currently can't be injected.
+
 ## Generic TCP mode
 
-For wire protocols with **no dedicated module** — MySQL, Kafka,
-Cassandra, Mongo, or your own — `--protocol tcp` runs a generic
-byte-stream proxy. It is a fourth sibling transport: same rules engine,
+For wire protocols with **no dedicated module** — Kafka, Cassandra,
+Mongo, or your own — `--protocol tcp` runs a generic
+byte-stream proxy. It is a fifth sibling transport: same rules engine,
 fired log, control API, and stats — but deliberately protocol-blind.
 It injects **transport faults** (latency, resets, timeouts, cut streams,
 corrupted bytes, synthetic replies), not protocol-correct errors.
@@ -713,7 +817,7 @@ A real run (endpoints configurable via `MINISTACK_URL`/`MICROBURST_URL`):
 - Writing a new wire transport? The seam is `src/microburst/transports.py`:
   a `TRANSPORTS` entry (name → `run_<name>` path, default ports, upstream
   schemes) plus a sibling package — the contract is documented in
-  `AGENTS.md`, and `pg/`, `redis/`, `tcp/` are the three reference
+  `AGENTS.md`, and `pg/`, `redis/`, `mysql/`, `tcp/` are the reference
   implementations.
 - This repo adopts [Apache Magpie](https://magpie.apache.org/) for
   agent-assisted maintainership (see `.apache-magpie.lock`).
