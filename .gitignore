@@ -11,3 +11,6 @@ src/microburst/_version.py
 tools/sdk-matrix/node_modules/
 tools/sdk-matrix/results.json
 tools/sdk-matrix/clients/sdkmatrix
+tools/sdk-matrix/clients/rust_client/target/
+tools/sdk-matrix/clients/dotnet_client/bin/
+tools/sdk-matrix/clients/dotnet_client/obj/

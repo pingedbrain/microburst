@@ -53,11 +53,38 @@ query-marker + required-header disambiguation.
   `smithy-protocol`/`x-amzn-requestid` headers.
 - ~~Query-compat error header~~ ✅ — `x-amzn-query-error: Code;Sender` sent
   when the request carries `x-amzn-query-mode` (matches real AWS behavior).
-- `aws-json-1.1` variant detection + envelope differences. `[good-first-issue]`
-- `__type` namespacing: emit `prefix#Code` vs bare `Code` where the service
-  expects it. `[size:S]`
-- Protocol-specific fields in error bodies (S3 `Resource`, `HostId`;
-  DynamoDB `ItemCollectionMetrics` style extras). `[size:M]`
+- ~~`aws-json-1.x` variant detection~~ ✅ — the request's observed
+  `x-amz-json-1.x` Content-Type wins over the model's `jsonVersion`
+  (`render_error(request_ct=...)`), same rule as `ctx.protocol`.
+- ~~`__type` namespacing~~ ✅ — per-service `prefix#Code` vs bare `Code`
+  verified against live captures (`com.amazonaws.dynamodb.v20120810#`,
+  `com.amazonaws.sqs#`, `com.amazonaws.cloudwatch.v2010_08_01#`); front-layer
+  auth codes (`ExpiredTokenException`, `UnrecognizedClientException`, …)
+  get `com.amazon.coral.service#` — observed on the sfn capture. The map
+  grows as captures cover more services.
+- ~~Protocol-specific fields in error bodies~~ ✅ — `error.fields` merges
+  arbitrary members per protocol (json/rest-json body, XML elements on
+  query/ec2/rest-xml, CBOR map); S3-family errors auto-carry `Resource`,
+  `RequestId`, and `HostId` matching `x-amz-id-2`; route53/cloudfront emit
+  the `ErrorResponse`+xmlns envelope verified on the route53 capture.
+- ~~ec2 envelope~~ ✅ — real AWS sends `<?xml?><Response><Errors><Error>` +
+  `<RequestID>` (capital D, no `<Type>`) with `text/xml;charset=UTF-8`;
+  we emitted the query `ErrorResponse` shape. Fixed + structural
+  regression coverage. (real AWS capture)
+- ~~query `xmlns`~~ ✅ — cfn/iam/rds/elbv2 captures carry
+  `<ErrorResponse xmlns="…">` from the model's `xmlNamespace` with
+  pretty-printed Type, Code, Message ordering. (real AWS capture)
+- ~~Coral-layer `Message`~~ ✅ — front-layer auth errors carry capital
+  `Message`, not service-layer `message` (sfn capture).
+- ~~rest-json RequestID members~~ ✅ — error-shape members named
+  `RequestID`/`RequestIdentifier` are filled from the request id
+  (pinpoint capture).
+- ~~athena error-code taxonomy~~ ✅ — resolved with real AWS probing
+  (us-east-1, 9 ops): `InvalidRequestException` always carries semantic
+  `AthenaErrorCode`+`ErrorCode` (`INVALID_INPUT`,
+  `NAMED_QUERY_NOT_FOUND`, `QUERY_EXECUTION_NOT_FOUND`…); `MetadataException`
+  carries neither. Default `INVALID_INPUT` emitted, overridable via
+  `error.fields`.
 
 ## Effects (`effects/`)
 
@@ -72,6 +99,30 @@ query-marker + required-header disambiguation.
 - ~~Latency distributions (gaussian, spike)~~ ✅ — `latency: {dist: gaussian,
   mean, stddev, min?, max?}` and `{dist: spike, min, max, spike_ms, spike_p}`;
   uniform stays the default.
+- ~~SigV4 fault presets~~ ✅ — `expired-token` (400),
+  `clock-skew` (`RequestTimeTooSkewed` 403), `bad-signature`
+  (`SignatureDoesNotMatch` 403) — statuses pinned since rest protocols
+  default to 503 while auth errors are 400/403 on the wire.
+- ~~Response header mutation~~ ✅ — `response: {set_headers:,
+  strip_headers:}` — wrong Content-Type on a 200, stripped `x-amz-*`
+  headers: exercises SDK parse failure paths body corruption doesn't
+  reach. Applied after built-in mutations so explicit intent wins.
+- ~~Request-side faults~~ ✅ — `request: {slow_upload: {rate_kbps},
+  cut_upload: {after_bytes|after_frac}}` faults the client→proxy
+  upload: paced reads stall the SDK's write path; `cut_upload` resets
+  the client connection after N consumed bytes without forwarding (a
+  true mid-upload reset for streaming uploads — S3 PutObject/UploadPart;
+  pre-buffered bodies cut on the read path instead).
+- ~~Service latency presets~~ ✅ — `latency: {preset: dynamodb}` resolves
+  a measured per-service baseline (real AWS us-east-1 probing, 2026-02:
+  service-side residual = p50 − ~155ms network floor, gaussian with
+  inferred stddev). `tools/latency_probe.py` refreshes the data.
+- ~~gRPC / event-stream request faults~~ ✅ — `cut_upload.after_messages`
+  resets the client connection after N complete frames and
+  `corrupt_upload.at_message` poisons message N's checksum/length for
+  the upstream's parser. Covers `application/vnd.amazon.eventstream`
+  and `application/grpc*` bodies; non-framed types no-op with a
+  fired-event note, malformed framing falls back to byte thresholds.
 
 ## Rules (`rules.py`)
 
@@ -88,19 +139,30 @@ query-marker + required-header disambiguation.
 - ~~Per-resource deterministic flakiness~~ ✅ — `deterministic: true` hashes
   the request identity; same resource always lands on the same side of p,
   and failure tiers nest monotonically.
+- ~~Scheduled activation windows~~ ✅ — `active_at`/`until` (epoch,
+  ISO-8601, or YAML datetime) bound when a rule starts/stops matching;
+  `starts_in_s`/`ends_in_s` surfaced in `GET /rules`.
 
 ## Control plane (`control.py`)
 
 - ~~Live fired-event stream~~ ✅ — `GET /_microburst/fired/stream` SSE,
   bounded per-consumer queues, keepalives.
-- ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` on GET /fired
-  (time-range still open).
+- ~~Fired log filters~~ ✅ — `?service=&operation=&rule_id=` and time-range
+  `?since=&until=` (epoch seconds or ISO-8601) on GET /fired.
 - ~~`/metrics` Prometheus endpoint~~ ✅ — requests/faults by (service,
   operation, action) + rules gauge. Counters survive fired-log deque
   eviction.
 - ~~OTel span emission per injected fault~~ ✅ — `microburst.fault` spans
   via optional `opentelemetry-api` (`pip install microburst[otel]`);
   no-op when absent.
+- ~~Rules file hot-reload~~ ✅ — `--watch` polls the `--config` file's
+  mtime and replaces the ruleset on change; a broken file keeps the
+  previous rules (logged, not fatal).
+- ~~Stats endpoint~~ ✅ — `GET /_microburst/stats`: the fired log says
+  *what* fired; stats say how much each fault costs — per-rule hit counts
+  (survive rule deletion), upstream time-to-headers percentiles over a
+  bounded reservoir, per-service split, fault-vs-forwarded totals.
+  `/metrics` counts; `/stats` explains.
 
 ## Data plane (`forward.py`)
 
@@ -159,6 +221,42 @@ query-marker + required-header disambiguation.
   (`?operation=create` vs `suspend`), required querystring members score
   (S3 `partNumber`/`uploadId`), and route specificity breaks ties when a
   greedy `{Label+}` swallows literal sibling segments.
+- ~~Structural envelope conformance~~ ✅ — `conform`/`report` now diff a
+  body signature on top of status/code/CT: namespace-qualified XML
+  element paths + `<?xml` presence for XML, top-level keys + `__type`
+  namespace prefix for JSON. Immediately caught four real divergences
+  (ec2 `Response/Errors` envelope, missing query `xmlns`, coral
+  `Message` casing, pinpoint `RequestID`, athena `AthenaErrorCode`) —
+  all fixed; report is 28/28.
+- ~~`fidelity diff`~~ ✅ — `microburst fidelity diff A B` compares any two
+  capture sets (same fields as conform, neutral labels, writes `DIFF.md`
+  into B). Verified: us-west-2 vs ap-southeast-2 AWS captures are
+  shape-identical 28/28.
+- ~~SDK matrix expansion~~ ✅ — aws-sdk-rust (smithy `Intercept` attempt
+  counting, `=` pins) and AWSSDK-v4 .NET (`DelegatingHandler` attempt
+  counting) cells; 20/20 pass with zero serializer changes. SDK-specific
+  HEAD-error parse documented (rust → `null`, .NET → `ServiceUnavailable`).
+- ~~**Happy-path captures**~~ ✅ — `SUCCESS_PROBES` (25 read-only
+  list/describe calls covering all six wire families) capture real 2xx
+  responses tagged `"kind": "success"` (`__ok`-suffixed when the op name
+  collides with an error probe). `conform`/`diff` compare them on
+  status + Content-Type + envelope shape — success bodies carry no error
+  code — and `report` skips them with a note. The gate parametrizes
+  error captures only. Goldens will be refreshed into
+  `fidelity/captures/` on the next real-AWS capture run.
+- ~~**Fidelity regression gate in CI**~~ ✅ — `test_fidelity_gate.py`
+  runs `check_capture` (the pure comparison extracted from `report`)
+  over every committed capture and asserts status + parsed
+  `Error.Code` + Content-Type + envelope shape all match; the count is
+  derived from `fidelity/captures/` with a `>= 28` floor so deletions
+  fail loudly. pytest coverage makes it automatic — `ci.yml` already
+  runs the suite.
+- ~~**Conformance CI vs other emulators**~~ ✅ — weekly
+  `emulator-conformance` workflow captures the probe set against a
+  LocalStack service container, `conform`s it against the committed AWS
+  goldens, and publishes `CONFORM.md` + captures as a run artifact and
+  step summary. Informational, not a merge gate; extending to more
+  emulators is a matrix addition.
 
 ## Ecosystem
 
@@ -170,18 +268,98 @@ query-marker + required-header disambiguation.
   `AWS_ENDPOINT_URL`. Optional `config:` mounts a rules file.
 - MiniStack-native integration — `/_ministack/chaos`-compatible API so the
   same faults work without a separate proxy hop.
+- **Protocol-agnostic core + PostgreSQL wire** — issue #6. ~~Phase 0/1
+  (MVP)~~ ✅: PG landed as a *sibling transport* (`src/microburst/pg/`),
+  not a pipeline refactor — shared rule engine/fired log/control API,
+  `--protocol postgres` TCP proxy with startup faults (`53300` FATAL),
+  simple + extended-protocol query faults, tx-status-aware ERROR
+  injection, `partial_rows` mid-ResultSet aborts, latency/reset/timeout.
+  What remains: COPY sub-protocol interception, `25P02`-class
+  in-transaction emulation (needs deeper upstream tx tracking), named
+  prepared-statement lifecycle (Close/deallocate), replication
+  (`walsender`) protocol. `[size:L → M remaining]`
+- ~~Redis wire mode~~ ✅ (MVP) — `src/microburst/redis/`, the third
+  sibling transport: RESP2+RESP3 frame codec, `-CODE` error renderer
+  (`MOVED`/`ASK` redirect tails compose from `error.fields.slot`/
+  `target`), `operation:`=verb / `resource:`=first-key / `args:`=regex
+  matching, `cut_reply: {after_bytes}` mid-reply aborts, MULTI-aware
+  error skipping (`skipped: in-multi`), pub/sub+MONITOR push-mode
+  passthrough. What remains: RESP3 `!` blob-error synthesis, real
+  RESP2↔RESP3 translation, TLS (`rediss://`), subscribe-mode fault
+  resumption (interleave faults into the push stream). `[size:M]`
+- ~~MySQL wire mode~~ ✅ (MVP) — `src/microburst/mysql/`, a fourth
+  dedicated sibling transport (`--protocol mysql`, default listen
+  13306, upstream `mysql`/`mariadb` schemes): 3B-LE+seq packet codec
+  with multi-packet reassembly, ERR_Packet renderer with
+  errno↔SQLSTATE defaulting (`error.errno`/`error.code`,
+  1105/`HY000` fallback), `operation:` = verb/`stmt_*`/`com_*`/
+  `startup`, per-connection prepared-statement id→SQL tracking so
+  `sql:` matches `COM_STMT_EXECUTE`, tx-aware non-fatal error
+  skipping (`skipped: in-transaction`), FATAL close-after-ERR,
+  `partial_rows` + `cut_reply`, startup ERR-as-first-packet refusals
+  (the real 1040/1129 shape), auth passthrough with
+  TLS/compression capability stripping, multi-statement relay
+  (`SERVER_MORE_RESULTS_EXISTS`-aware). What remains: the
+  post-handshake-response refusal shape (per-user limits, `1045`),
+  `COM_STMT_FETCH` cursor interception and replication/binlog
+  streams (currently spliced passthrough), TLS termination, LOAD
+  DATA INFILE fault injection. `[size:M]`
+- ~~gRPC wire mode~~ ✅ (MVP) — `src/microburst/grpc/`, the h2c
+  sibling transport (`--protocol grpc`, default listen 15051, upstream
+  `grpc://` scheme only — no TLS termination). One decision per RPC at
+  request HEADERS (`operation:` = lowercased `/pkg.Svc/Method` path);
+  `error:` renders the trailers-only shape (`grpc-status`/`grpc-message`
+  over HTTP 200 — names or numbers), `partial_messages` + `error:` lands
+  the configured trailers after N real messages (mid-stream error),
+  `partial_messages` alone → RST_STREAM, `reset:` → RST_STREAM per-RPC,
+  `timeout: true` parks the call with real flow-control backpressure
+  (inbound DATA unacked — client deadline → DEADLINE_EXCEEDED
+  client-side), `cut_reply`/`cut_upload` for TCP-level mid-stream death.
+  What remains: TLS (`grpcs`/TLS clients), per-stream timing wheels
+  (latency/timeout currently park the connection's read pump), h2
+  extension-frame relay (PRIORITY/PUSH_PROMISE), grpc-web transcoding.
+  `[size:M]`
 - ~~TUI dashboard~~ ✅ — `microburst dashboard [--connect URL]` (rich,
   `microburst[tui]` extra): rules table + live fired stream via SSE.
   `[size:L]`
+- ~~Generic TCP transport + registry~~ ✅ — `src/microburst/transports.py`
+  formalizes the sibling-transport seam (`TRANSPORTS` registry: name →
+  `run_*` path, default ports, upstream schemes, extra option keys;
+  `cli.py` dispatches every `--protocol` through it) and
+  `src/microburst/tcp/` is the protocol-blind fourth sibling: duplex
+  frame/chunk pumps, `--framing`/`framing:` user-declared segmentation
+  (length-prefix / delimiter / fixed), `service: tcp` +
+  `payload:` byte-regex matching, `operation:` = `c2s:frame`/`s2c:frame`/
+  `conn`, transport faults only (`latency`/`reset`/`timeout`/
+  `cut_upload`/`cut_reply`/`corrupt`/`respond` — `error:` deliberately
+  has no renderer). What remains: a `slow_upload`-style rate limiter on
+  the stream, per-frame `corrupt.at_message`, TLS termination.
+  `[size:M]`
 - ~~Cassette record/replay~~ ✅ — `--record DIR` captures upstream
   responses keyed by method+path+body; `--replay DIR` serves them
   upstream-free while rules still inject faults.
 - ~~`microburst fidelity` subcommand~~ ✅ — the live-AWS diff harness
   ships in the wheel (`capture`/`report`, `--dir`); `tools/live_fidelity.py`
-  is a thin repo wrapper.
+  is a thin repo wrapper. Extended since: `capture --endpoint-url` +
+  `conform` diff any AWS-compatible endpoint against the committed goldens
+  (found 21/28 divergences on first run against a real emulator);
+  `snapshot` + a weekly zero-credentials workflow watch botocore for model
+  drift; captures carry AWS request-id provenance; `fidelity/protocol/`
+  vendors AWS-authored protocol fixtures parsed back through botocore's
+  own models.
+- ~~Runnable examples~~ ✅ — `examples/` ships seven self-contained
+  failure scenarios (throttled writes, timeout cascade, poison queue,
+  S3 SlowDown, stream cuts, expired token, generic HTTP) with configs
+  kept parseable by a test.
+- ~~Scripted end-to-end demo~~ ✅ — `demo.py` (endpoints via
+  `MINISTACK_URL`/`MICROBURST_URL`) + a real recorded run embedded in
+  the README: 31 orders, 11 SDK-absorbed throttles, fired-log summary.
 
 ## Explicitly out of scope (for now)
 
-- TCP-level chaos (Toxiproxy does it — we're the layer above).
+- ~~TCP-level chaos~~ — partially landed: `--protocol tcp` covers
+  transport faults for protocols without a dedicated module; what stays
+  out is protocol *semantics* (per-operation errors still need a
+  dedicated transport like pg/redis).
 - Infrastructure faults (kill instances, network partitions — that's FIS).
 - Anything that requires MITM/TLS interception.

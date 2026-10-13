@@ -1,0 +1,30 @@
+{
+  "body": "<ListUsersResponse xmlns=\"https://iam.amazonaws.com/doc/2010-05-08/\">\n  <ListUsersResult>\n    <IsTruncated>x</IsTruncated>\n    <Users>\n      <member>\n        <Path>x</Path>\n        <UserName>x</UserName>\n        <Arn>arn:aws:svc::000000000000:x</Arn>\n        <UserId>x</UserId>\n        <CreateDate>1970-01-01T00:00:00Z</CreateDate>\n      </member>\n    </Users>\n  </ListUsersResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</ListUsersResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Content-Length": "557",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:45 GMT",
+    "x-amzn-RequestId": "955e1f61-459b-469c-b20b-219fc15e8fda"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "iam",
+  "operation": "list_users",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:45Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "955e1f61-459b-469c-b20b-219fc15e8fda"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "iam",
+  "status": 200,
+  "ts": 1791571725.9679372,
+  "url": "https://iam.amazonaws.com/"
+}

@@ -18,6 +18,9 @@ async def apply(ctx, decision: Decision) -> web.Response | None:
         decision.error.status,
         protocol=ctx.protocol,
         query_compat=ctx.query_compat,
+        request_ct=ctx.headers.get("Content-Type"),
+        fields=decision.error.fields,
+        resource=ctx.path,
     )
     if ctx.method == "HEAD":
         body = b""

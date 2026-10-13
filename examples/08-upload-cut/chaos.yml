@@ -1,0 +1,9 @@
+# Cut the client→proxy link 64 KiB into every other upload — the SDK
+# sees a connection error on its write path and retries; the retry lands
+# on the pass slot. Nothing is forwarded upstream for the cut attempts.
+rules:
+  - service: s3
+    operation: PutObject
+    sequence: {fail: 1, pass: 1}   # cut, upload, cut, upload, ...
+    request:
+      cut_upload: {after_bytes: 65536}

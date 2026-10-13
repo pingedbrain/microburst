@@ -18,8 +18,10 @@ from aiohttp import web
 from microburst.control import handle_control
 from microburst.detection import detect, should_buffer
 from microburst.effects import apply_decision
-from microburst.forward import Upstream
+from microburst.forward import Upstream, consume_upload
+from microburst.observe import emit_fired
 from microburst.rules import FiredEvent, RuleEngine, describe
+from microburst.stats import ProxyStats
 from microburst.tracing import fault_span
 
 logger = logging.getLogger("microburst")
@@ -29,11 +31,13 @@ class Microburst:
     def __init__(self, upstream: str, rules: list[dict] | None = None,
                  resign: bool | None = None, fired_capacity: int = 2000,
                  http2: bool = False, cassette=None):
+        self.stats = ProxyStats()
         self.upstream = Upstream(
             upstream,
             resign=(".amazonaws.com" in upstream) if resign is None else resign,
             http2=http2,
             cassette=cassette,
+            stats=self.stats,
         )
         self.engine = RuleEngine()
         if rules:
@@ -79,6 +83,7 @@ class Microburst:
             body = await request.read()
 
         ctx = detect(request.headers, request.method, path, query, body)
+        self.stats.record_request(ctx.service)
 
         decision = self.engine.decide(ctx)
         if decision is not None:
@@ -94,30 +99,40 @@ class Microburst:
                 action=action,
                 path=request.rel_url.raw_path_qs,
             )
-            self.fired.append(event)
-            self.fault_counts[(ctx.service, ctx.operation, action)] += 1
-            payload = event.to_dict()
-            for q in self._listeners:
-                try:
-                    q.put_nowait(payload)
-                except asyncio.QueueFull:
-                    pass  # slow consumer drops events, never blocks the proxy
-            logger.info(
-                "FIRED rule=%s %s %s %s",
-                decision.rule.id, ctx.service, ctx.operation, action,
-            )
+            emit_fired(self, event)
             with fault_span(
                 decision.rule.id, ctx.service, ctx.operation, action
             ):
+                # Request-side faults act on the client→proxy upload, so
+                # they run first — a cut link dies before any response
+                # (error envelope or otherwise) could exist.
+                data = None
+                if decision.request_fault is not None:
+                    data, cut = await consume_upload(
+                        request, body, decision.request_fault
+                    )
+                    event.note = decision.request_fault.note
+                    if cut:
+                        # socket already dead — nothing can be written
+                        return web.Response(status=200)
                 fault = await apply_decision(request, ctx, decision)
                 if fault is not None:
                     return fault
                 # terminal effects didn't fire → forward, possibly
                 # mutating the response on the way back
-                return await self.upstream.relay(
-                    request, body, mutator=decision.response_fault
+                self.stats.record_forward()
+                resp = await self.upstream.relay(
+                    request, body,
+                    mutator=decision.response_fault,
+                    data=data,
                 )
+                if decision.request_fault is not None:
+                    # A streaming corrupt_upload sets its note while the
+                    # upstream send drains the transform — final by now.
+                    event.note = decision.request_fault.note
+                return resp
 
+        self.stats.record_forward()
         return await self.upstream.relay(request, body)
 
     async def handle_control(self, request: web.Request):

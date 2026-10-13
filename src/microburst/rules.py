@@ -12,10 +12,12 @@ import hashlib
 import itertools
 import json
 import random
+import re
 import time
 import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl
 
@@ -25,7 +27,7 @@ from microburst.core.context import BODY_UNSET, RequestContext
 from microburst.models import operation_error_names
 
 if TYPE_CHECKING:
-    from microburst.forward import ResponseFault
+    from microburst.forward import RequestFault, ResponseFault
 
 _ids = itertools.count(1)
 
@@ -42,6 +44,7 @@ class Latency:
     stddev_ms: float = 0.0
     spike_ms: float = 0.0
     spike_p: float = 0.05
+    preset: str | None = None   # LATENCY_PRESETS name, when one was used
 
     def sample(self) -> float:
         if self.dist == "gaussian":
@@ -61,6 +64,29 @@ class FaultError:
     code: str | None = None      # None → sample from the operation's modeled errors
     status: int | None = None    # None → modeled httpStatusCode, else 400
     message: str | None = None
+    fields: dict | None = None   # extra error-shape members, rendered per protocol
+    severity: str | None = None  # pg/mysql wire modes only: FATAL = close after the error packet
+    errno: int | None = None     # mysql wire mode only: ERR_Packet error number
+
+
+@dataclass
+class CorruptSpec:
+    """tcp wire mode: flip the byte at absolute offset ``at_bytes`` of
+    the client→server stream. ``bit`` is the corruption style — only
+    ``flip`` (XOR 0xFF) exists today."""
+    at_bytes: int
+    bit: str = "flip"
+
+
+@dataclass
+class RespondSpec:
+    """tcp wire mode: write ``data`` to the client WITHOUT forwarding the
+    decided unit upstream — the hand-crafted protocol-ish reply escape
+    hatch. ``then``: ``forward`` (keep relaying subsequent traffic),
+    ``close`` (clean close after the write), or ``hold`` (swallow the
+    rest of the client's stream while the link stays open)."""
+    data: bytes
+    then: str = "forward"          # forward | close | hold
 
 
 @dataclass
@@ -71,6 +97,9 @@ class Rule:
     resource: str | None = None
     headers: dict[str, str] | None = None
     body: str | None = None          # jmespath expression — truthy = match
+    sql: str | None = None           # pg wire mode: case-insensitive regex on query text
+    args: str | None = None          # redis wire mode: case-insensitive regex on command text
+    payload: str | None = None       # tcp wire mode: case-insensitive regex on unit bytes (latin-1); falls back to sql/args
     rate_count: int | None = None    # at most N fires per rate_window
     rate_window: float | None = None  # seconds
     sequence: tuple[int, int] | None = None  # (fail N, pass M), repeating
@@ -79,21 +108,38 @@ class Rule:
     times: int | None = None
     error: FaultError | None = None
     latency: Latency | None = None
-    timeout_ms: float | None = None
+    timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
+    partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
+    partial_messages: int | None = None  # grpc mode: relay N reply messages, then trailers/RST_STREAM
+    cut_reply_bytes: int | None = None  # wire modes: relay N reply bytes, then TCP-abort
+    cut_reply_messages: int | None = None  # tcp wire mode: relay N reply frames, then TCP-abort
+    corrupt: CorruptSpec | None = None  # tcp wire mode: flip stream byte at offset
+    respond: RespondSpec | None = None  # tcp wire mode: synthetic client reply
     response: dict | None = None   # post-forward response mutation spec
+    request: dict | None = None    # pre-forward client-upload fault spec
     ttl_s: float | None = None     # rule expires N seconds after creation
+    active_at: float | None = None # epoch — rule starts matching then
+    until: float | None = None     # epoch — rule stops matching then
     id: int = field(default_factory=lambda: next(_ids))
     fired_count: int = 0
     created_ts: float = field(default_factory=time.time)
     _body_expr: Any = field(default=None, repr=False)  # jmespath Parser
+    _sql_re: Any = field(default=None, repr=False)     # compiled sql regex
+    _args_re: Any = field(default=None, repr=False)    # compiled args regex
+    _payload_re: Any = field(default=None, repr=False) # compiled payload regex
     _fired_ts: deque = field(default_factory=deque, repr=False)
     _seq_pos: int = field(default=0, repr=False)
 
     def matches(self, info: RequestContext) -> bool:
         if self.times is not None and self.fired_count >= self.times:
             return False
-        if self.ttl_s is not None and time.time() - self.created_ts >= self.ttl_s:
+        now = time.time()
+        if self.ttl_s is not None and now - self.created_ts >= self.ttl_s:
+            return False
+        if self.active_at is not None and now < self.active_at:
+            return False
+        if self.until is not None and now >= self.until:
             return False
         if self.service and self.service != "*" and self.service != info.service:
             return False
@@ -113,6 +159,28 @@ class Rule:
         if self.body is not None:
             parsed = _body_value(info)
             if parsed is None or not self._body_expr.search(parsed):
+                return False
+        if self.sql is not None:
+            if self._sql_re is None:
+                # lazy compile — covers Rules built without from_dict
+                self._sql_re = re.compile(self.sql, re.IGNORECASE)
+            if info.sql is None or self._sql_re.search(info.sql) is None:
+                return False
+        if self.args is not None:
+            if self._args_re is None:
+                # lazy compile — covers Rules built without from_dict
+                self._args_re = re.compile(self.args, re.IGNORECASE)
+            if info.args is None or self._args_re.search(info.args) is None:
+                return False
+        if self.payload is not None:
+            if self._payload_re is None:
+                self._payload_re = re.compile(self.payload, re.IGNORECASE)
+            # tcp sets info.payload; pg/redis get the same matcher on
+            # their command text via the sql/args fallback
+            text = info.payload
+            if text is None:
+                text = info.sql if info.sql is not None else info.args
+            if text is None or self._payload_re.search(text) is None:
                 return False
         if self.rate_count is not None:
             now = time.time()
@@ -139,11 +207,93 @@ class Decision:
     timeout_ms: float | None
     reset: bool
     response_fault: ResponseFault | None = None  # built at fire time
+    request_fault: RequestFault | None = None    # built at fire time
+
+
+def _ts_or_none(value) -> float | None:
+    """Epoch seconds, an ISO-8601 string, or a datetime (yaml.safe_load
+    already converts timestamp-looking scalars). Naive values resolve in
+    the host's local timezone; a trailing ``Z`` means UTC."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError(f"invalid timestamp {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        iso = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            return datetime.fromisoformat(iso).timestamp()
+        except ValueError as e:
+            raise ValueError(f"invalid timestamp {value!r}") from e
+    raise ValueError(f"invalid timestamp {value!r}")
+
+
+# Measured per-service latency presets — `latency: {preset: dynamodb}`.
+#
+# Evidence label: REAL AWS OBSERVATION. Probed 2026-02 with read-only
+# list/describe operations against live us-east-1 endpoints, n=8 samples
+# per service, SDK-visible wall time (tools/latency_probe.py refreshes the
+# data). Each `mean` is the SERVICE-SIDE RESIDUAL: observed p50 minus the
+# ~155ms host→us-east-1 network floor (min observed across all probes,
+# stepfunctions). The floor is the caller's own network — not microburst's
+# to simulate — so presets encode only what the service adds.
+#
+# Modeling assumption (INFERENCE, not measured): service-side stddev is
+# not recoverable through network noise, so each preset uses
+# stddev = max(5.0, 0.35 * mean). These are order-of-magnitude baselines,
+# not SLAs — re-probe before trusting them for anything precise.
+LATENCY_PRESETS: dict[str, dict] = {
+    "dynamodb":       {"dist": "gaussian", "mean": 8.4,   "stddev": 5.0},
+    "s3":             {"dist": "gaussian", "mean": 30.6,  "stddev": 10.7},
+    "sqs":            {"dist": "gaussian", "mean": 16.1,  "stddev": 5.6},
+    "sns":            {"dist": "gaussian", "mean": 5.2,   "stddev": 5.0},
+    "lambda":         {"dist": "gaussian", "mean": 53.6,  "stddev": 18.8},
+    "kinesis":        {"dist": "gaussian", "mean": 12.5,  "stddev": 5.0},
+    "iam":            {"dist": "gaussian", "mean": 57.2,  "stddev": 20.0},
+    "ec2":            {"dist": "gaussian", "mean": 49.1,  "stddev": 17.2},
+    "cloudformation": {"dist": "gaussian", "mean": 30.3,  "stddev": 10.6},
+    "ssm":            {"dist": "gaussian", "mean": 39.1,  "stddev": 13.7},
+    "secretsmanager": {"dist": "gaussian", "mean": 44.0,  "stddev": 15.4},
+    "sts":            {"dist": "gaussian", "mean": 8.1,   "stddev": 5.0},
+    "logs":           {"dist": "gaussian", "mean": 11.9,  "stddev": 5.0},
+    "firehose":       {"dist": "gaussian", "mean": 13.5,  "stddev": 5.0},
+    "events":         {"dist": "gaussian", "mean": 13.5,  "stddev": 5.0},
+    "stepfunctions":  {"dist": "gaussian", "mean": 5.3,   "stddev": 5.0},
+    "kms":            {"dist": "gaussian", "mean": 6.9,   "stddev": 5.0},
+    "athena":         {"dist": "gaussian", "mean": 43.8,  "stddev": 15.3},
+    "route53":        {"dist": "gaussian", "mean": 25.1,  "stddev": 8.8},
+    "cloudfront":     {"dist": "gaussian", "mean": 14.6,  "stddev": 5.1},
+    "glacier":        {"dist": "gaussian", "mean": 10.1,  "stddev": 5.0},
+    "wafv2":          {"dist": "gaussian", "mean": 25.9,  "stddev": 9.1},
+    "elbv2":          {"dist": "gaussian", "mean": 28.8,  "stddev": 10.1},
+    "apigateway":     {"dist": "gaussian", "mean": 46.6,  "stddev": 16.3},
+    "pinpoint":       {"dist": "gaussian", "mean": 233.7, "stddev": 81.8},
+}
 
 
 def _latency_from_dict(data: dict) -> Latency:
-    dist = data.get("dist", "uniform")
-    num = {k: float(v) for k, v in data.items() if k != "dist"}
+    merged = dict(data)
+    preset_name = merged.pop("preset", None)
+    if preset_name is not None:
+        if preset_name not in LATENCY_PRESETS:
+            raise ValueError(
+                f"unknown latency preset {preset_name!r}; "
+                f"valid: {', '.join(sorted(LATENCY_PRESETS))}"
+            )
+        base = dict(LATENCY_PRESETS[preset_name])
+        # explicit keys override preset defaults — same "explicit intent
+        # wins" convention as response.set_headers
+        base.update(merged)
+        merged = base
+    dist = merged.get("dist", "uniform")
+    num = {k: float(v) for k, v in merged.items() if k != "dist"}
     if dist == "gaussian":
         return Latency(
             dist="gaussian",
@@ -151,6 +301,7 @@ def _latency_from_dict(data: dict) -> Latency:
             stddev_ms=num.get("stddev", 0.0),
             min_ms=num.get("min", 0.0),
             max_ms=num.get("max", 0.0),
+            preset=preset_name,
         )
     if dist == "spike":
         return Latency(
@@ -159,15 +310,45 @@ def _latency_from_dict(data: dict) -> Latency:
             max_ms=num.get("max", 0.0),
             spike_ms=num.get("spike_ms", 0.0),
             spike_p=num.get("spike_p", 0.05),
+            preset=preset_name,
         )
-    return Latency(min_ms=num.get("min", 0.0), max_ms=num.get("max", 0.0))
+    return Latency(
+        min_ms=num.get("min", 0.0),
+        max_ms=num.get("max", 0.0),
+        preset=preset_name,
+    )
+
+
+def _timeout_ms(data: dict) -> float | None:
+    """`timeout_ms` is the canonical key; `timeout: true` is the pg wire
+    mode's hang-forever variant, stored as a negative sentinel."""
+    if data.get("timeout_ms") is not None:
+        return float(data["timeout_ms"])
+    if data.get("timeout"):
+        return -1.0
+    return None
 
 
 def from_dict(data: dict) -> Rule:
     error = data.get("error")
+    if isinstance(error, dict):
+        error = dict(error)
+        # pg wire mode spells the code `sqlstate`; `code` stays canonical
+        sqlstate = error.pop("sqlstate", None)
+        if error.get("code") is None and sqlstate is not None:
+            error["code"] = sqlstate
+        if error.get("errno") is not None:
+            error["errno"] = int(error["errno"])
     latency = data.get("latency")
     rate = data.get("rate")
     sequence = data.get("sequence")
+    request = data.get("request") if isinstance(data.get("request"), dict) else None
+    if isinstance(data.get("cut_upload"), dict):
+        # tcp wire mode spells it top-level like cut_reply; canonical
+        # home is still request.cut_upload → RequestFault
+        request = dict(request or {})
+        request["cut_upload"] = data["cut_upload"]
+    cut_reply_bytes, cut_reply_messages = _cut_reply(data.get("cut_reply"))
     rule = Rule(
         service=data.get("service"),
         operation=data.get("operation"),
@@ -179,6 +360,15 @@ def from_dict(data: dict) -> Rule:
             else None
         ),
         body=data.get("body"),
+        sql=data.get("sql"),
+        args=data.get("args"),
+        # `payload:` is the canonical byte-stream matcher; `bytes:` is an
+        # accepted spelling for the same thing
+        payload=(
+            data.get("payload")
+            if data.get("payload") is not None
+            else data.get("bytes")
+        ),
         rate_count=int(rate["count"]) if isinstance(rate, dict) else None,
         rate_window=float(rate.get("window_s", 60)) if isinstance(rate, dict) else None,
         sequence=(
@@ -199,16 +389,60 @@ def from_dict(data: dict) -> Rule:
             if isinstance(latency, dict)
             else None
         ),
-        timeout_ms=data.get("timeout_ms"),
+        timeout_ms=_timeout_ms(data),
         reset=bool(data.get("reset", False)),
+        partial_rows=(
+            int(data["partial_rows"])
+            if data.get("partial_rows") is not None
+            else None
+        ),
+        partial_messages=(
+            int(data["partial_messages"])
+            if data.get("partial_messages") is not None
+            else None
+        ),
+        cut_reply_bytes=cut_reply_bytes,
+        cut_reply_messages=cut_reply_messages,
+        corrupt=_corrupt(data.get("corrupt")),
+        respond=_respond(data.get("respond")),
         response=data.get("response") if isinstance(data.get("response"), dict) else None,
+        request=request,
         ttl_s=float(data["ttl_s"]) if data.get("ttl_s") is not None else None,
+        active_at=_ts_or_none(data.get("active_at")),
+        until=_ts_or_none(data.get("until")),
     )
     if rule.body is not None:
         try:
             rule._body_expr = jmespath.compile(rule.body)
         except Exception as e:  # any compile failure → bad rule
             raise ValueError(f"invalid body jmespath {rule.body!r}: {e}") from e
+    if rule.sql is not None:
+        try:
+            rule._sql_re = re.compile(rule.sql, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"invalid sql regex {rule.sql!r}: {e}") from e
+    if rule.args is not None:
+        try:
+            rule._args_re = re.compile(rule.args, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"invalid args regex {rule.args!r}: {e}") from e
+    if rule.payload is not None:
+        try:
+            rule._payload_re = re.compile(rule.payload, re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(
+                f"invalid payload regex {rule.payload!r}: {e}"
+            ) from e
+    if rule.partial_rows is not None and rule.partial_rows < 0:
+        raise ValueError("partial_rows must be >= 0")
+    if rule.partial_messages is not None and rule.partial_messages < 0:
+        raise ValueError("partial_messages must be >= 0")
+    if (
+        rule.error is not None
+        and rule.error.fields is not None
+        and not isinstance(rule.error.fields, dict)
+    ):
+        raise ValueError("error.fields must be a mapping of member → value")
     return rule
 
 
@@ -222,6 +456,12 @@ def to_dict(rule: Rule) -> dict:
         out["headers"] = rule.headers
     if rule.body is not None:
         out["body"] = rule.body
+    if rule.sql is not None:
+        out["sql"] = rule.sql
+    if rule.args is not None:
+        out["args"] = rule.args
+    if rule.payload is not None:
+        out["payload"] = rule.payload
     if rule.rate_count is not None:
         out["rate"] = {"count": rule.rate_count, "window_s": rule.rate_window}
     if rule.sequence is not None:
@@ -239,12 +479,17 @@ def to_dict(rule: Rule) -> dict:
                 "code": rule.error.code,
                 "status": rule.error.status,
                 "message": rule.error.message,
+                "fields": rule.error.fields,
+                "severity": rule.error.severity,
+                "errno": rule.error.errno,
             }.items()
             if v is not None
         }
     if rule.latency:
         lat = rule.latency
         d: dict = {"dist": lat.dist}
+        if lat.preset:
+            d["preset"] = lat.preset
         if lat.dist == "gaussian":
             d.update(mean=lat.mean_ms, stddev=lat.stddev_ms)
         elif lat.dist == "spike":
@@ -252,15 +497,48 @@ def to_dict(rule: Rule) -> dict:
         d.update(min=lat.min_ms, max=lat.max_ms)
         out["latency"] = d
     if rule.timeout_ms is not None:
-        out["timeout_ms"] = rule.timeout_ms
+        if rule.timeout_ms < 0:
+            out["timeout"] = True
+        else:
+            out["timeout_ms"] = rule.timeout_ms
     if rule.reset:
         out["reset"] = True
+    if rule.partial_rows is not None:
+        out["partial_rows"] = rule.partial_rows
+    if rule.partial_messages is not None:
+        out["partial_messages"] = rule.partial_messages
+    if rule.cut_reply_bytes is not None or rule.cut_reply_messages is not None:
+        out["cut_reply"] = {
+            k: v
+            for k, v in {
+                "after_bytes": rule.cut_reply_bytes,
+                "after_messages": rule.cut_reply_messages,
+            }.items()
+            if v is not None
+        }
+    if rule.corrupt is not None:
+        out["corrupt"] = {"at_bytes": rule.corrupt.at_bytes}
+        if rule.corrupt.bit != "flip":
+            out["corrupt"]["bit"] = rule.corrupt.bit
+    if rule.respond is not None:
+        out["respond"] = {
+            "base64": base64.b64encode(rule.respond.data).decode(),
+            "then": rule.respond.then,
+        }
     if rule.response:
         out["response"] = rule.response
+    if rule.request:
+        out["request"] = rule.request
     if rule.ttl_s is not None:
         out["ttl_s"] = rule.ttl_s
         remaining = rule.ttl_s - (time.time() - rule.created_ts)
         out["ttl_remaining_s"] = max(0.0, round(remaining, 1))
+    if rule.active_at is not None:
+        out["active_at"] = rule.active_at
+        out["starts_in_s"] = max(0.0, round(rule.active_at - time.time(), 1))
+    if rule.until is not None:
+        out["until"] = rule.until
+        out["ends_in_s"] = max(0.0, round(rule.until - time.time(), 1))
     out["fired_count"] = rule.fired_count
     return out
 
@@ -326,6 +604,7 @@ class RuleEngine:
                         code=random.choice(plausible),
                         status=error.status,
                         message=error.message,
+                        fields=error.fields,
                     )
             return Decision(
                 rule=rule,
@@ -334,6 +613,7 @@ class RuleEngine:
                 timeout_ms=rule.timeout_ms,
                 reset=rule.reset,
                 response_fault=_response_fault(rule.response),
+                request_fault=_request_fault(rule.request),
             )
         return None
 
@@ -376,6 +656,34 @@ PRESETS: dict[str, dict] = {
         "service": "*",
         "probability": 0.2,
         "error": {"code": "InternalError", "status": 500},
+    },
+    # SigV4 front-layer faults — statuses pinned because rest protocols
+    # default to 503 while auth errors are 400/403 on the real wire.
+    "expired-token": {
+        "service": "*",
+        "error": {
+            "code": "ExpiredTokenException",
+            "status": 400,
+            "message": "The security token included in the request is expired",
+        },
+    },
+    "clock-skew": {
+        "service": "*",
+        "error": {
+            "code": "RequestTimeTooSkewed",
+            "status": 403,
+            "message": "The difference between the request time and the "
+            "current time is too large.",
+        },
+    },
+    "bad-signature": {
+        "service": "*",
+        "error": {
+            "code": "SignatureDoesNotMatch",
+            "status": 403,
+            "message": "The request signature we calculated does not match "
+            "the signature you provided. Check your key and signing method.",
+        },
     },
 }
 
@@ -465,6 +773,10 @@ class FiredEvent:
     region: str | None
     action: str
     path: str
+    # Runtime detail learned while the fault executed (frame counts,
+    # no-op explanations) — filled in after the event is logged, so SSE
+    # subscribers may see an earlier snapshot without it.
+    note: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -476,7 +788,46 @@ class FiredEvent:
             "region": self.region,
             "action": self.action,
             "path": self.path,
+            "note": self.note,
         }
+
+
+def _request_fault(spec: dict | None) -> RequestFault | None:
+    """Build a fresh RequestFault per fire — resolve() mutates it in place."""
+    if spec is None:
+        return None
+    from microburst.forward import RequestFault
+
+    slow = spec.get("slow_upload")
+    cut = spec.get("cut_upload")
+    corrupt = spec.get("corrupt_upload")
+    return RequestFault(
+        rate_kbps=(
+            _float_or_none(slow.get("rate_kbps"))
+            if isinstance(slow, dict)
+            else None
+        ),
+        after_bytes=(
+            _int_or_none(cut.get("after_bytes"))
+            if isinstance(cut, dict)
+            else None
+        ),
+        after_frac=(
+            _float_or_none(cut.get("after_frac"))
+            if isinstance(cut, dict)
+            else None
+        ),
+        after_messages=(
+            _int_or_none(cut.get("after_messages"))
+            if isinstance(cut, dict)
+            else None
+        ),
+        corrupt_at_message=(
+            _int_or_none(corrupt.get("at_message"))
+            if isinstance(corrupt, dict)
+            else None
+        ),
+    )
 
 
 def _response_fault(spec: dict | None) -> ResponseFault | None:
@@ -496,6 +847,16 @@ def _response_fault(spec: dict | None) -> ResponseFault | None:
         event_error_message=_event_error(spec).get("message"),
         event_error_after=int(_event_error(spec).get("after_frames", 3)),
         event_mutations=_event_mutations(spec),
+        set_headers=(
+            {str(k): str(v) for k, v in spec["set_headers"].items()}
+            if isinstance(spec.get("set_headers"), dict)
+            else {}
+        ),
+        strip_headers=(
+            tuple(str(h) for h in spec["strip_headers"])
+            if isinstance(spec.get("strip_headers"), list)
+            else ()
+        ),
     )
 
 
@@ -573,6 +934,83 @@ def _event_mutations(spec: dict) -> tuple:
     return tuple(out)
 
 
+def _cut_reply(spec) -> tuple[int | None, int | None]:
+    """Response-side abort: `cut_reply: {after_bytes: N, after_messages: M}`
+    relays N bytes (redis, tcp) or M complete reply frames (framed tcp),
+    then TCP-aborts."""
+    if spec is None:
+        return None, None
+    if not isinstance(spec, dict):
+        raise TypeError(
+            "cut_reply must be a mapping: {after_bytes: N} or "
+            "{after_messages: M}"
+        )
+    n = spec.get("after_bytes")
+    m = spec.get("after_messages")
+    if n is None and m is None:
+        raise ValueError("cut_reply requires after_bytes or after_messages")
+    if n is not None:
+        n = int(n)
+        if n < 0:
+            raise ValueError("cut_reply.after_bytes must be >= 0")
+    if m is not None:
+        m = int(m)
+        if m < 0:
+            raise ValueError("cut_reply.after_messages must be >= 0")
+    return n, m
+
+
+def _corrupt(spec) -> CorruptSpec | None:
+    """tcp wire mode: `corrupt: {at_bytes: N, bit: flip}` flips the byte
+    at absolute offset N of the client→server stream."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise TypeError("corrupt must be a mapping: {at_bytes: N}")
+    at = spec.get("at_bytes")
+    if at is None:
+        raise ValueError("corrupt requires at_bytes")
+    at = int(at)
+    if at < 0:
+        raise ValueError("corrupt.at_bytes must be >= 0")
+    bit = spec.get("bit", "flip")
+    if bit != "flip":
+        raise ValueError(f"corrupt.bit must be 'flip', got {bit!r}")
+    return CorruptSpec(at_bytes=at, bit=bit)
+
+
+def _respond(spec) -> RespondSpec | None:
+    """tcp wire mode: `respond: {data|hex|base64, then}` writes crafted
+    bytes to the client instead of forwarding the decided unit."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise TypeError(
+            "respond must be a mapping: {data|hex|base64, then}"
+        )
+    sources = [k for k in ("data", "hex", "base64") if spec.get(k) is not None]
+    if len(sources) != 1:
+        raise ValueError(
+            "respond requires exactly one of data, hex, base64"
+        )
+    src = sources[0]
+    try:
+        if src == "data":
+            data = str(spec["data"]).encode("latin-1")
+        elif src == "hex":
+            data = bytes.fromhex(str(spec["hex"]))
+        else:
+            data = base64.b64decode(str(spec["base64"]), validate=True)
+    except (ValueError, UnicodeEncodeError) as e:
+        raise ValueError(f"invalid respond.{src}: {e}") from e
+    then = spec.get("then", "forward")
+    if then not in ("forward", "close", "hold"):
+        raise ValueError(
+            f"respond.then must be forward|close|hold, got {then!r}"
+        )
+    return RespondSpec(data=data, then=then)
+
+
 def _int_or_none(v):
     return int(v) if v is not None else None
 
@@ -584,13 +1022,53 @@ def _float_or_none(v):
 def describe(decision: Decision) -> str:
     parts = []
     if decision.latency_ms:
-        parts.append(f"latency:{decision.latency_ms:.0f}ms")
+        lat = decision.rule.latency
+        name = f"{lat.preset}:" if lat is not None and lat.preset else ""
+        parts.append(f"latency:{name}{decision.latency_ms:.0f}ms")
     if decision.error:
-        parts.append(f"error:{decision.error.code}")
+        sev = f"/{decision.error.severity}" if decision.error.severity else ""
+        if decision.error.code is None and decision.error.errno is not None:
+            parts.append(f"error:errno={decision.error.errno}{sev}")
+        else:
+            parts.append(f"error:{decision.error.code}{sev}")
     if decision.timeout_ms:
-        parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
+        if decision.timeout_ms < 0:
+            parts.append("timeout")
+        else:
+            parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
     if decision.reset:
         parts.append("reset")
+    if decision.rule.partial_rows is not None:
+        parts.append(f"partial_rows:{decision.rule.partial_rows}")
+    if decision.rule.partial_messages is not None:
+        parts.append(f"partial_messages:{decision.rule.partial_messages}")
+    if decision.rule.cut_reply_bytes is not None:
+        parts.append(f"cut_reply:{decision.rule.cut_reply_bytes}B")
+    if decision.rule.cut_reply_messages is not None:
+        parts.append(f"cut_reply:msg{decision.rule.cut_reply_messages}")
+    if decision.rule.corrupt is not None:
+        parts.append(f"corrupt@{decision.rule.corrupt.at_bytes}B")
+    if decision.rule.respond is not None:
+        parts.append(
+            f"respond:{len(decision.rule.respond.data)}B/"
+            f"{decision.rule.respond.then}"
+        )
+    xf = decision.request_fault
+    if xf is not None:
+        # request-side faults act on the upload — they run before the
+        # forward, so they describe before the response: mutations
+        if xf.rate_kbps:
+            parts.append(f"request:slow_upload:{xf.rate_kbps:.0f}kbps")
+        if xf.after_bytes is not None:
+            parts.append(f"request:cut_upload:{xf.after_bytes}B")
+        elif xf.after_frac is not None:
+            parts.append("request:cut_upload")
+        if xf.after_messages is not None:
+            parts.append(f"request:cut_upload:msg{xf.after_messages}")
+        if xf.corrupt_at_message is not None:
+            parts.append(
+                f"request:corrupt_upload:msg{xf.corrupt_at_message}"
+            )
     rf = decision.response_fault
     if rf is not None:
         if rf.truncate_bytes is not None or rf.truncate_frac is not None:

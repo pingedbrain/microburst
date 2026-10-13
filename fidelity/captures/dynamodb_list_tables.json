@@ -1,0 +1,33 @@
+{
+  "body": "{\"TableNames\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Connection": "keep-alive",
+    "Content-Length": "17",
+    "Content-Type": "application/x-amz-json-1.0",
+    "Date": "Fri, 09 Oct 2026 18:48:39 GMT",
+    "Server": "Server",
+    "x-amz-crc32": "1315925753",
+    "x-amzn-RequestId": "UP4QKCK348P28G6FHDV2LGDM9VVV4KQNSO5AEMVJF66Q9ASUAAJG"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "dynamodb",
+  "operation": "list_tables",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:39Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "UP4QKCK348P28G6FHDV2LGDM9VVV4KQNSO5AEMVJF66Q9ASUAAJG"
+    },
+    "server": "Server"
+  },
+  "sdk_error_code": null,
+  "service": "dynamodb",
+  "status": 200,
+  "ts": 1791571719.8449113,
+  "url": "https://dynamodb.us-east-1.amazonaws.com/"
+}

@@ -1,0 +1,33 @@
+{
+  "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Owner><ID>x</ID></Owner><Buckets><Bucket><Name>x</Name><CreationDate>1970-01-01T00:00:00Z</CreationDate><BucketArn>arn:aws:svc::000000000000:x</BucketArn></Bucket><Bucket><Name>x</Name><CreationDate>1970-01-01T00:00:00Z</CreationDate><BucketArn>arn:aws:svc::000000000000:x</BucketArn></Bucket></Buckets></ListAllMyBucketsResult>",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "rest-xml",
+  "headers": {
+    "Content-Type": "application/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:52 GMT",
+    "Server": "AmazonS3",
+    "Transfer-Encoding": "chunked",
+    "x-amz-id-2": "sKEAO+85bVz7WoF22o98rf/lXgKw/VUa+cYXJXp6k3y1XNlmgNWrT8Op36XU+Y5mcdVavv9gHtasJRhF0YTECn+tclQ3ZbJ1",
+    "x-amz-request-id": "1XKY4F1HGA7RFZAC"
+  },
+  "kind": "success",
+  "method": "GET",
+  "model_service": "s3",
+  "operation": "list_buckets",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:51Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amz-id-2": "sKEAO+85bVz7WoF22o98rf/lXgKw/VUa+cYXJXp6k3y1XNlmgNWrT8Op36XU+Y5mcdVavv9gHtasJRhF0YTECn+tclQ3ZbJ1",
+      "x-amz-request-id": "1XKY4F1HGA7RFZAC"
+    },
+    "server": "AmazonS3"
+  },
+  "sdk_error_code": null,
+  "service": "s3",
+  "status": 200,
+  "ts": 1791571731.3997972,
+  "url": "https://s3.amazonaws.com/"
+}

@@ -15,14 +15,15 @@ import os
 import re
 import secrets
 import time
-from dataclasses import dataclass
+from collections.abc import AsyncIterable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import aiohttp
 from aiohttp import web
 
-from microburst import eventstream
+from microburst import eventstream, framing
 from microburst.cassette import Cassette, entry_response_body
 
 if TYPE_CHECKING:
@@ -154,6 +155,10 @@ class ResponseFault:
     - ``event_mutations``: frame-level event-stream surgery — drop,
       repayload, corrupt, inject, or cut frames at given indices
       (``response.event_frames`` in the DSL).
+    - ``set_headers``/``strip_headers``: mutate response headers —
+      wrong Content-Type on a 200, stripped ``x-amz-*`` headers —
+      exercises SDK parse paths body corruption doesn't reach.
+      Applied after the built-in mutations so explicit intent wins.
     """
     truncate_bytes: int | None = None
     truncate_frac: float | None = None
@@ -165,6 +170,8 @@ class ResponseFault:
     event_error_message: str | None = None
     event_error_after: int = 3
     event_mutations: tuple[eventstream.Mutation, ...] = ()
+    set_headers: dict[str, str] = field(default_factory=dict)
+    strip_headers: tuple[str, ...] = ()
 
     def resolve(self, content_length: int | None) -> None:
         """Turn frac fields into absolute byte counts once the upstream
@@ -177,6 +184,249 @@ class ResponseFault:
             self.abort_bytes = int(content_length * self.abort_frac)
 
 
+@dataclass
+class RequestFault:
+    """Client→proxy upload mutation. All fields optional; combine freely.
+
+    - ``rate_kbps`` (``request.slow_upload.rate_kbps``): throttle the
+      proxy's read of the client body. On a still-streaming upload this
+      backpressures the SDK's write path; on a pre-buffered body the
+      write already finished, so the pacing shifts to the upstream send
+      (the upstream observes the slow client).
+    - ``after_bytes``/``after_frac`` (``request.cut_upload``): after the
+      proxy has consumed that much of the client upload, reset the client
+      connection WITHOUT forwarding — no response is ever produced. On a
+      still-streaming upload the SDK sees ECONNRESET mid-PUT; on a
+      pre-buffered body the write already finished, so the reset lands on
+      its read path (same observable as ``reset: true``).
+    - ``after_messages`` (``request.cut_upload``): same reset, counted in
+      framed messages instead of bytes — the cut lands on a message
+      boundary, so the SDK sees the connection die *between* frames.
+      Requires a framed Content-Type (eventstream / ``application/grpc*``);
+      anything else no-ops with a fired-event note.
+    - ``corrupt_at_message`` (``request.corrupt_upload.at_message``):
+      pass N-1 framed messages through, then corrupt message N's
+      checksum/length so the UPSTREAM's parser rejects it. Runs as a
+      body-transform on the send path — the client stays connected to
+      receive the upstream's error.
+
+    Fidelity caveat — aiohttp does not pre-buffer request bodies, but
+    microburst does whenever detection needs one (non-streaming ops
+    ≤4 MiB, body matchers, cassette mode). Only streaming uploads (S3
+    PutObject/UploadPart, large payloads) can be cut truly mid-write.
+    """
+    rate_kbps: float | None = None
+    after_bytes: int | None = None
+    after_frac: float | None = None
+    after_messages: int | None = None
+    corrupt_at_message: int | None = None
+    # Runtime detail set by consume_upload — surfaced on the fired event.
+    note: str | None = None
+
+    def resolve(self, content_length: int | None) -> None:
+        """Turn ``after_frac`` into an absolute byte count once the
+        request body size is known."""
+        if content_length is None:
+            return
+        if self.after_frac is not None and self.after_bytes is None:
+            self.after_bytes = int(content_length * self.after_frac)
+
+
+def _note(fault: RequestFault, msg: str) -> None:
+    """Accumulate runtime detail on the fault — surfaced on the fired
+    event by the pipeline (a fire can produce several notes, e.g. a
+    malformed frame falling back to byte counting)."""
+    fault.note = f"{fault.note}; {msg}" if fault.note else msg
+
+
+async def consume_upload(
+    request: web.Request,
+    body: bytes | None,
+    fault: RequestFault,
+) -> tuple[bytes | AsyncIterable[bytes] | None, bool]:
+    """Apply the client→proxy half of a fired rule.
+
+    Returns ``(data, cut)``. ``data`` is the payload source ``relay()``
+    should send upstream (``None`` → unchanged default: the buffered body
+    or ``request.content``). ``cut`` means the client connection was
+    reset — the caller must not forward and any response it returns dies
+    on the dead socket.
+
+    A cut fires only if the proxy's read of the client body actually
+    crosses ``after_bytes`` (or completes ``after_messages`` frames on a
+    framed Content-Type) before EOF — a body shorter than the threshold
+    uploads completely and forwards. Because a streaming cut can't know
+    the threshold was crossed until it reads, it buffers what it
+    consumes; a threshold past the body end therefore reads the whole
+    upload into memory (same outcome as the normal buffered path).
+
+    Framed faults (``after_messages``/``corrupt_at_message``) parse
+    message boundaries via ``framing.FramedStream``. Malformed framing
+    stops message counting and falls back to byte thresholds; a corrupt
+    that never reaches its target message forwards verbatim. Every such
+    outcome lands in ``fault.note`` for the fired event.
+    """
+    # Message-boundary faults need a known framed wire format. On any
+    # other Content-Type they're no-ops (byte thresholds still apply) —
+    # never an error for the request itself.
+    kind = None
+    if (
+        fault.after_messages is not None
+        or fault.corrupt_at_message is not None
+    ):
+        kind = framing.framing_for(request.headers.get("content-type"))
+        if kind is None:
+            if fault.after_messages is not None:
+                _note(fault, "after_messages: content-type not a framed stream")
+            if fault.corrupt_at_message is not None:
+                _note(
+                    fault,
+                    "corrupt_upload: content-type not a framed stream",
+                )
+
+    if body is not None:
+        # Body was pre-buffered for detection — the client's write is
+        # already done. The buffered length is the truth (chunked uploads
+        # carry no Content-Length to resolve a frac against).
+        fault.resolve(len(body))
+        # Cut checks first — a cut discards the payload, so a corrupt
+        # transform applied before them would be wasted (and its note
+        # would claim a mutation that never reached the wire).
+        if kind is not None and fault.after_messages is not None:
+            scan = framing.FramedStream(kind)
+            scan.feed(body)
+            if scan.frames >= fault.after_messages:
+                _abort_client(request)
+                _note(
+                    fault,
+                    f"cut_upload: reset after message "
+                    f"{fault.after_messages} "
+                    f"(frames_seen={scan.frames}, kind={kind})",
+                )
+                return None, True
+            if scan.failed:
+                _note(
+                    fault,
+                    "cut_upload: malformed frame — "
+                    "fell back to byte counting",
+                )
+            else:
+                _note(
+                    fault,
+                    f"cut_upload: only {scan.frames} messages in body "
+                    f"(< {fault.after_messages}) — forwarded",
+                )
+        if fault.after_bytes is not None and len(body) >= fault.after_bytes:
+            _abort_client(request)
+            return None, True
+        data = body
+        if kind is not None and fault.corrupt_at_message is not None:
+            data, note = framing.corrupt_body(
+                body, kind, fault.corrupt_at_message
+            )
+            if note:
+                _note(fault, note)
+        if fault.rate_kbps:
+            return _pace(_byte_chunks(data), fault.rate_kbps), False
+        return (data if data is not body else None), False
+
+    if not request.can_read_body:
+        return None, False  # no body — request faults no-op
+
+    fault.resolve(request.content_length)
+    wants_cut = fault.after_bytes is not None or (
+        kind is not None and fault.after_messages is not None
+    )
+    if wants_cut:
+        # Receive the bytes the fault models — a real client→proxy link
+        # failure means the client wrote them before the reset, so the
+        # proxy's read must get that far. The upstream never sees them.
+        collected = bytearray()
+        scan = (
+            framing.FramedStream(kind)
+            if kind is not None and fault.after_messages is not None
+            else None
+        )
+        async for chunk in request.content.iter_chunked(8192):
+            if fault.rate_kbps:
+                await asyncio.sleep(len(chunk) / (fault.rate_kbps * 1024))
+            collected += chunk
+            if scan is not None and not scan.failed:
+                scan.feed(chunk)
+                if scan.failed:
+                    _note(
+                        fault,
+                        "cut_upload: malformed frame — "
+                        "fell back to byte counting",
+                    )
+                elif scan.frames >= fault.after_messages:
+                    _abort_client(request)
+                    _note(
+                        fault,
+                        f"cut_upload: reset after message "
+                        f"{fault.after_messages} "
+                        f"(frames_seen={scan.frames}, kind={kind})",
+                    )
+                    return None, True
+            if fault.after_bytes is not None and len(collected) >= fault.after_bytes:
+                _abort_client(request)
+                return None, True
+        if scan is not None and not scan.failed:
+            _note(
+                fault,
+                f"cut_upload: stream ended at {scan.frames} messages "
+                f"(< {fault.after_messages}) — forwarded",
+            )
+        data = bytes(collected)  # body ended before the threshold
+        if kind is not None and fault.corrupt_at_message is not None:
+            data, note = framing.corrupt_body(
+                data, kind, fault.corrupt_at_message
+            )
+            if note:
+                _note(fault, note)
+        return data, False
+
+    if fault.rate_kbps or (
+        kind is not None and fault.corrupt_at_message is not None
+    ):
+        chunks: AsyncIterable[bytes] = request.content.iter_chunked(8192)
+        if fault.rate_kbps:
+            chunks = _pace(chunks, fault.rate_kbps)
+        if kind is not None and fault.corrupt_at_message is not None:
+            # corrupt is a send-path transform: the client keeps writing,
+            # the upstream receives the poisoned frame and its parser's
+            # error response flows back to the still-connected client.
+            chunks = framing.corrupt_stream(
+                chunks,
+                kind,
+                fault.corrupt_at_message,
+                lambda msg: _note(fault, msg),
+            )
+        return chunks, False
+    return None, False
+
+
+def _abort_client(request: web.Request) -> None:
+    """Kill the client connection — the write the caller returns will
+    never reach the socket."""
+    transport = getattr(request, "transport", None)
+    if transport is not None:
+        transport.abort()
+
+
+async def _byte_chunks(data: bytes, size: int = 8192):
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
+
+
+async def _pace(chunks, rate_kbps: float):
+    """Re-yield a chunk stream throttled to ``rate_kbps`` — mirrors the
+    response-side bandwidth pacing (sleep per chunk before passing it on)."""
+    async for chunk in chunks:
+        await asyncio.sleep(len(chunk) / (rate_kbps * 1024))
+        yield chunk
+
+
 class Upstream:
     """Client for the upstream endpoint: session lifecycle + relay.
 
@@ -187,11 +437,14 @@ class Upstream:
     """
 
     def __init__(self, base_url: str, resign: bool = False,
-                 http2: bool = False, cassette: Cassette | None = None):
+                 http2: bool = False, cassette: Cassette | None = None,
+                 stats=None):
         self.base_url = base_url.rstrip("/")
         self.resign = resign
         self.http2 = http2
         self.cassette = cassette
+        # ProxyStats sink for upstream latency samples (None = don't record)
+        self.stats = stats
         self.session: aiohttp.ClientSession | None = None
         self.hx: httpx.AsyncClient | None = None  # set when http2
 
@@ -244,7 +497,12 @@ class Upstream:
         request: web.Request,
         body: bytes | None,
         mutator: ResponseFault | None = None,
+        data: bytes | AsyncIterable[bytes] | None = None,
     ) -> web.StreamResponse:
+        """``data`` overrides the outbound payload source (bytes or an
+        async iterable — e.g. a throttled upload stream from
+        ``consume_upload``); ``body`` stays the metadata body used for
+        cassette keys and SigV4 payload hashing."""
         cass_key = None
         if self.cassette is not None:
             cass_key = Cassette.key_for(
@@ -271,8 +529,12 @@ class Upstream:
                     once(),
                 )
         if self.hx is not None:
-            return await self._relay_httpx(request, body, mutator, cass_key)
-        return await self._relay_aiohttp(request, body, mutator, cass_key)
+            return await self._relay_httpx(
+                request, body, mutator, cass_key, data
+            )
+        return await self._relay_aiohttp(
+            request, body, mutator, cass_key, data
+        )
 
     async def _relay_httpx(
         self,
@@ -280,15 +542,22 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None,
         cass_key: str | None,
+        data: bytes | AsyncIterable[bytes] | None,
     ) -> web.StreamResponse:
         assert self.hx is not None  # relay() only routes here when set
         url = self.base_url + request.rel_url.raw_path_qs
         headers = self._outbound_headers(request)
 
         if self.resign:
+            # Sign what is actually sent — a corrupt_upload transform
+            # rewrites the buffered bytes, and upstream SigV4 verifies
+            # the wire payload, not the client's original.
+            wire_body = (
+                bytes(data) if isinstance(data, (bytes, bytearray)) else body
+            )
             payload_hash = (
-                hashlib.sha256(body).hexdigest()
-                if body is not None
+                hashlib.sha256(wire_body).hexdigest()
+                if wire_body is not None
                 else "UNSIGNED-PAYLOAD"
             )
             signed = resign_headers(
@@ -302,15 +571,23 @@ class Upstream:
                 headers = signed
 
         async def content_stream():
-            if body is not None:
-                yield body
-            else:
+            payload = data if data is not None else body
+            if payload is None:
                 async for chunk in request.content.iter_any():
+                    yield chunk
+            elif isinstance(payload, (bytes, bytearray)):
+                yield bytes(payload)
+            else:
+                async for chunk in payload:
                     yield chunk
 
         req = self.hx.build_request(
             request.method, url, headers=headers, content=content_stream()
         )
+        # Latency seam: send → response headers received. Downstream body
+        # streaming (and any injected bandwidth/abort mutation) stays out
+        # of the sample — it measures the upstream, not the fault.
+        t0 = time.monotonic()
         try:
             upstream = await self.hx.send(req, stream=True)
         except httpx.HTTPError as exc:
@@ -319,6 +596,8 @@ class Upstream:
                 status=502,
                 text=f"microburst: upstream {self.base_url} unreachable: {exc}",
             )
+        if self.stats is not None:
+            self.stats.record_upstream_ms((time.monotonic() - t0) * 1000)
         chunk_size = 8192 if mutator and mutator.bandwidth_kbps else None
         # aiter_raw: no decoding — we forward bytes verbatim, the client
         # owns Content-Encoding semantics
@@ -341,15 +620,22 @@ class Upstream:
         body: bytes | None,
         mutator: ResponseFault | None,
         cass_key: str | None,
+        data: bytes | AsyncIterable[bytes] | None,
     ) -> web.StreamResponse:
         assert self.session is not None
         url = self.base_url + request.rel_url.raw_path_qs
         headers = self._outbound_headers(request)
 
         if self.resign:
+            # Sign what is actually sent — a corrupt_upload transform
+            # rewrites the buffered bytes, and upstream SigV4 verifies
+            # the wire payload, not the client's original.
+            wire_body = (
+                bytes(data) if isinstance(data, (bytes, bytearray)) else body
+            )
             payload_hash = (
-                hashlib.sha256(body).hexdigest()
-                if body is not None
+                hashlib.sha256(wire_body).hexdigest()
+                if wire_body is not None
                 else "UNSIGNED-PAYLOAD"
             )
             signed = resign_headers(
@@ -362,13 +648,18 @@ class Upstream:
             if signed is not None:
                 headers = signed
 
-        data = body if body is not None else request.content
+        payload = data if data is not None else (
+            body if body is not None else request.content
+        )
+        # Latency seam: send → response headers received — same convention
+        # as _relay_httpx; a 502 (upstream unreachable) records no sample.
+        t0 = time.monotonic()
         try:
             upstream = await self.session.request(
                 request.method,
                 url,
                 headers=headers,
-                data=data,
+                data=payload,
                 allow_redirects=False,
             )
         except aiohttp.ClientError as exc:
@@ -377,6 +668,8 @@ class Upstream:
                 status=502,
                 text=f"microburst: upstream {self.base_url} unreachable: {exc}",
             )
+        if self.stats is not None:
+            self.stats.record_upstream_ms((time.monotonic() - t0) * 1000)
 
         chunk_size = 8192 if mutator and mutator.bandwidth_kbps else 0
         chunks = (
@@ -436,6 +729,22 @@ async def _stream_to_client(
                 # describes it (streams usually lack one anyway)
                 resp_headers.pop("Content-Length", None)
                 chunks = eventstream.mutate_frames(chunks, event_mutations)
+        # Explicit header mutation wins over the built-in adjustments:
+        # strip first, then set (a set wins over a strip of the same
+        # name — order in the spec is meaningless, intent isn't).
+        if mutator.strip_headers:
+            strip = {h.lower() for h in mutator.strip_headers}
+            resp_headers = {
+                k: v for k, v in resp_headers.items()
+                if k.lower() not in strip
+            }
+        if mutator.set_headers:
+            replaced = {k.lower() for k in mutator.set_headers}
+            resp_headers = {
+                k: v for k, v in resp_headers.items()
+                if k.lower() not in replaced
+            }
+            resp_headers.update(mutator.set_headers)
 
     resp = web.StreamResponse(status=status, headers=resp_headers)
     await resp.prepare(request)

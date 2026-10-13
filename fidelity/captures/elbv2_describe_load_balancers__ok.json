@@ -1,0 +1,30 @@
+{
+  "body": "<DescribeLoadBalancersResponse xmlns=\"http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/\">\n  <DescribeLoadBalancersResult>\n    <LoadBalancers/>\n  </DescribeLoadBalancersResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</DescribeLoadBalancersResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Content-Length": "324",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:47 GMT",
+    "x-amzn-RequestId": "f864c929-23a9-4046-bb7c-65d9c3256252"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "elbv2",
+  "operation": "describe_load_balancers",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:47Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "f864c929-23a9-4046-bb7c-65d9c3256252"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "elbv2",
+  "status": 200,
+  "ts": 1791571727.5910273,
+  "url": "https://elasticloadbalancing.us-east-1.amazonaws.com/"
+}

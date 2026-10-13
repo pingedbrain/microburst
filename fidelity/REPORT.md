@@ -1,6 +1,8 @@
 # Live-AWS fidelity report
 
-Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+Captured 2026-10-09 18:49 UTC against real AWS (us-east-1). Each probe targets a nonexistent resource; captures are raw wire bytes via botocore's transport.
+
+*25 success-path capture(s) skipped — microburst forwards successful upstream responses rather than rendering them; `fidelity conform`/`fidelity diff` compare their envelopes (status + Content-Type + body shape).*
 
 | service | operation | error code | AWS status | ours | AWS CT | ours | verdict |
 |---|---|---|---|---|---|---|---|
@@ -11,7 +13,7 @@ Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a
 | cloudwatch | get_dashboard | `ResourceNotFound` | 404 | 404 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
 | cognito-idp | describe_user_pool | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 | dynamodb | describe_table | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
-| ec2 | describe_instances | `InvalidInstanceID.Malformed` | 400 | 400 | `text/xml;charset=UTF-8` | `text/xml` | ✅ |
+| ec2 | describe_instances | `InvalidInstanceID.Malformed` | 400 | 400 | `text/xml;charset=UTF-8` | `text/xml;charset=UTF-8` | ✅ |
 | elbv2 | describe_load_balancers | `ValidationError` | 400 | 400 | `text/xml` | `text/xml` | ✅ |
 | events | describe_event_bus | `ResourceNotFoundException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 | glacier | describe_vault | `ResourceNotFoundException` | 404 | 404 | `application/json` | `application/json` | ✅ |
@@ -33,4 +35,4 @@ Captured 2026-10-08 17:14 UTC against real AWS (us-east-1). Each probe targets a
 | stepfunctions | describe_state_machine | `AccessDeniedException` | 400 | 400 | `application/x-amz-json-1.0` | `application/x-amz-json-1.0` | ✅ |
 | wafv2 | get_web_acl | `ValidationException` | 400 | 400 | `application/x-amz-json-1.1` | `application/x-amz-json-1.1` | ✅ |
 
-**28/28 probes: status + parsed Error.Code + Content-Type match.**
+**28/28 probes: status + parsed Error.Code + Content-Type + envelope shape match.**

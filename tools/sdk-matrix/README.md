@@ -10,10 +10,12 @@ pointed at a dead upstream (every request is injected before forwarding),
 then runs each SDK client against it and records, per scenario:
 
 - the error **code the SDK parsed** (`ClientError.Error.Code`,
-  `e.name`, `smithy.APIError.ErrorCode()`)
+  `e.name`, `smithy.APIError.ErrorCode()`, `SdkError::ServiceError`
+  metadata, `AmazonServiceException.ErrorCode`)
 - the **HTTP status** the SDK saw
 - **attempt counts** — measured twice, independently: client-side
-  (`before-send` / `$metadata.attempts` / finalize middleware) and
+  (`before-send` / `$metadata.attempts` / finalize middleware /
+  smithy `Intercept::read_before_attempt` / `HttpClient` handler) and
   server-side from the proxy's `/_microburst/fired` log. Both must agree.
 
 ## Scenarios
@@ -35,8 +37,10 @@ maps a codeless 503 differently:
 - **aws-sdk-go-v2** → `"ServiceUnavailable"` (smithy-go generic)
 - **aws-sdk-js-v3** → `"Unknown"` (smithy-js generic)
 - **aws-sdk-java-v2** → `null` (`awsErrorDetails().errorCode()` is absent)
+- **aws-sdk-rust** → `null` (`meta().code()` is absent on the service error)
+- **aws-sdk-dotnet** → `"ServiceUnavailable"` (generic .NET error code)
 
-All four retried the 503 — retry semantics agree, only the error *label*
+All six retried the 503 — retry semantics agree, only the error *label*
 differs, exactly as it does against real AWS.
 
 ## Running
@@ -48,12 +52,16 @@ python tools/sdk-matrix/run.py          # or --sdk boto3,js-v3
 # per-SDK dependencies (once)
 cd tools/sdk-matrix && npm install
 cd tools/sdk-matrix/clients && go mod download
+# rust/dotnet build on first `run.py` invocation (cargo run / dotnet run)
 ```
 
 Requires: Python venv with microburst installed, Node ≥18 (SDK v3),
-Go ≥1.21 (SDK v2), JDK+Maven (SDK Java v2 — `clients/java/`).
+Go ≥1.21 (SDK v2), JDK+Maven (SDK Java v2 — `clients/java/`),
+Rust/Cargo (SDK Rust — `clients/rust_client/`), .NET SDK ≥8 (SDK .NET —
+`clients/dotnet_client/`; targets net8.0 with `RollForward=LatestMajor`
+so it also runs on newer runtimes).
 Toolchains absent → those cells are skipped with a warning.
 Results land in `results.json`.
 
-CI runs all four SDKs on every push (`sdk-matrix` job in
-`.github/workflows/ci.yml`).
+CI runs every SDK whose toolchain is on the runner on every push
+(`sdk-matrix` job in `.github/workflows/ci.yml`).

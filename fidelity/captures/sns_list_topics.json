@@ -1,0 +1,31 @@
+{
+  "body": "<ListTopicsResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">\n  <ListTopicsResult>\n    <Topics/>\n  </ListTopicsResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</ListTopicsResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Content-Length": "256",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:44 GMT",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "6091bacd-9f96-5fc1-ae88-d98ea6da2af5"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "sns",
+  "operation": "list_topics",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:44Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "6091bacd-9f96-5fc1-ae88-d98ea6da2af5"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "sns",
+  "status": 200,
+  "ts": 1791571724.7517555,
+  "url": "https://sns.us-east-1.amazonaws.com/"
+}

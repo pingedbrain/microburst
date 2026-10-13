@@ -94,7 +94,12 @@ class Upstub:
 
         params = dict(request.rel_url.query)
         if "Action" not in params and body:
-            params = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            try:
+                params = {
+                    k: v[0] for k, v in parse_qs(body.decode()).items()
+                }
+            except UnicodeDecodeError:
+                pass  # binary bodies (framed uploads) carry no Action
         action = params.get("Action")
         if action:
             # Query protocol XML envelope

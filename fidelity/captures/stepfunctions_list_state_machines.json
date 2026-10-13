@@ -1,0 +1,31 @@
+{
+  "body": "{\"stateMachines\":[]}",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "json",
+  "headers": {
+    "Content-Length": "20",
+    "Content-Type": "application/x-amz-json-1.0",
+    "Date": "Fri, 09 Oct 2026 18:48:42 GMT",
+    "connection": "keep-alive",
+    "x-amzn-RequestId": "d86494bf-a2dd-4b56-894a-80db84177e96"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "stepfunctions",
+  "operation": "list_state_machines",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:42Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "d86494bf-a2dd-4b56-894a-80db84177e96"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "stepfunctions",
+  "status": 200,
+  "ts": 1791571722.6915226,
+  "url": "https://states.us-east-1.amazonaws.com/"
+}

@@ -1,0 +1,31 @@
+{
+  "body": "<GetCallerIdentityResponse xmlns=\"https://sts.amazonaws.com/doc/2011-06-15/\">\n  <GetCallerIdentityResult>\n    <Arn>arn:aws:svc::000000000000:x</Arn>\n    <UserId>x</UserId>\n    <Account>x</Account>\n  </GetCallerIdentityResult>\n  <ResponseMetadata>\n    <RequestId>x</RequestId>\n  </ResponseMetadata>\n</GetCallerIdentityResponse>\n",
+  "body_b64": null,
+  "content_scrubbed": true,
+  "family": "query",
+  "headers": {
+    "Content-Length": "407",
+    "Content-Type": "text/xml",
+    "Date": "Fri, 09 Oct 2026 18:48:46 GMT",
+    "X-Amz-Sts-Extended-Request-Id": "MTp1cy1lYXN0LTE6UzoxNzkxNTcxNzI2NjI0OlI6VEhvbEo3Y0U=",
+    "x-amzn-RequestId": "696fb5a7-2e37-41ef-a273-a47be54ab448"
+  },
+  "kind": "success",
+  "method": "POST",
+  "model_service": "sts",
+  "operation": "get_caller_identity",
+  "provenance": {
+    "botocore": "1.43.109",
+    "captured_at": "2026-10-09T18:48:46Z",
+    "region": "us-east-1",
+    "request_ids": {
+      "x-amzn-requestid": "696fb5a7-2e37-41ef-a273-a47be54ab448"
+    },
+    "server": null
+  },
+  "sdk_error_code": null,
+  "service": "sts",
+  "status": 200,
+  "ts": 1791571726.7998347,
+  "url": "https://sts.us-east-1.amazonaws.com/"
+}

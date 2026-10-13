@@ -15,6 +15,7 @@ Timeline (all driven live, no pre-baked output):
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -26,8 +27,8 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-MINISTACK = "http://localhost:4566"
-MICROBURST = "http://127.0.0.1:9999"
+MINISTACK = os.environ.get("MINISTACK_URL", "http://localhost:4566")
+MICROBURST = os.environ.get("MICROBURST_URL", "http://127.0.0.1:9999")
 
 G, Y, R, C, D, X = "\033[92m", "\033[93m", "\033[91m", "\033[96m", "\033[2m", "\033[0m"
 
