@@ -275,7 +275,7 @@ def test_command_facts_stmt_prepare():
     op, res, sql, _ = command_facts(b"\x16insert into orders values (?)", {})
     assert op == "stmt_prepare"
     assert res == "orders"
-    assert "insert into orders" in sql
+    assert sql is not None and "insert into orders" in sql
 
 
 def test_command_facts_stmt_execute_resolves_sql():

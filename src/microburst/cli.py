@@ -266,6 +266,13 @@ def main(argv: list[str] | None = None) -> int:
             "record" if args.record else "replay",
         )
 
+    if not isinstance(upstream, str):
+        print(
+            "invalid upstream: expected a URL or host:port string",
+            file=sys.stderr,
+        )
+        return 2
+
     microburst = Microburst(
         upstream, rules=rules, resign=resign, http2=args.http2,
         cassette=cassette,

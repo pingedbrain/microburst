@@ -893,6 +893,7 @@ def test_no_reply_command_error_skips(mysql_stack):
     sock, _ = mysql_connect(stack.port, deprecate=False)
     mysql_command(sock, COM_STMT_PREPARE, b"select 1")
     reply = read_packet_sync(sock)
+    assert reply is not None
     stmt_id = int.from_bytes(reply[1][1:5], "little")
     read_packet_sync(sock)
     read_packet_sync(sock)

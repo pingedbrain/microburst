@@ -19,6 +19,12 @@ from microburst.redis.proto import (
 from microburst.rules import from_dict, to_dict
 
 
+def _reply(data: bytes):
+    r = _read(read_reply, data)
+    assert r is not None
+    return r
+
+
 def _read(fn, data: bytes):
     """Run ``fn`` against a StreamReader fed ``data`` + EOF, inside a loop
     (StreamReader construction itself needs a running loop on 3.13+)."""
@@ -105,48 +111,48 @@ def test_pipelined_commands_read_in_order():
 # --- reply frames --------------------------------------------------------------
 
 def test_reply_simple_error_int():
-    assert _read(read_reply, simple("OK")).value == "OK"
-    err = _read(read_reply, b"-MOVED 1 h:1\r\n")
+    assert _reply(simple("OK")).value == "OK"
+    err = _reply(b"-MOVED 1 h:1\r\n")
     assert err.kind == b"-" and err.value == "MOVED 1 h:1"
-    assert _read(read_reply, b":42\r\n").value == 42
+    assert _reply(b":42\r\n").value == 42
 
 
 def test_reply_bulk_and_nulls():
-    r = _read(read_reply, bulk(b"hello"))
+    r = _reply(bulk(b"hello"))
     assert r.kind == b"$" and r.value == b"hello"
-    assert _read(read_reply, b"$-1\r\n").value is None
-    assert _read(read_reply, b"*-1\r\n").value is None
-    assert _read(read_reply, b"_\r\n").value is None  # RESP3 null
+    assert _reply(b"$-1\r\n").value is None
+    assert _reply(b"*-1\r\n").value is None
+    assert _reply(b"_\r\n").value is None  # RESP3 null
 
 
 def test_reply_nested_aggregate_roundtrip():
     wire = (
         b"*3\r\n$5\r\nhello\r\n:2\r\n*2\r\n+OK\r\n$3\r\nbye\r\n"
     )
-    r = _read(read_reply, wire)
+    r = _reply(wire)
     assert r.raw == wire
     assert r.value == [b"hello", 2, ["OK", b"bye"]]
 
 
 def test_reply_resp3_types():
-    assert _read(read_reply, b"#t\r\n").value is True
-    assert _read(read_reply, b",3.5\r\n").value == 3.5
-    assert _read(read_reply, b",inf\r\n").value == float("inf")
-    assert _read(read_reply, b"(3492890328409238509324850943850943825024385\r\n").value == (
+    assert _reply(b"#t\r\n").value is True
+    assert _reply(b",3.5\r\n").value == 3.5
+    assert _reply(b",inf\r\n").value == float("inf")
+    assert _reply(b"(3492890328409238509324850943850943825024385\r\n").value == (
         3492890328409238509324850943850943825024385
     )
     # blob error / verbatim share bulk framing
-    assert _read(read_reply, b"!4\r\nSYO!\r\n").value == b"SYO!"
-    assert _read(read_reply, b"=9\r\ntxt:hello\r\n").value == b"txt:hello"
+    assert _reply(b"!4\r\nSYO!\r\n").value == b"SYO!"
+    assert _reply(b"=9\r\ntxt:hello\r\n").value == b"txt:hello"
     # set and push parse as element lists
-    assert _read(read_reply, b"~2\r\n:1\r\n:2\r\n").value == [1, 2]
-    push = _read(read_reply, b">2\r\n$4\r\nkind\r\n$4\r\ndata\r\n")
+    assert _reply(b"~2\r\n:1\r\n:2\r\n").value == [1, 2]
+    push = _reply(b">2\r\n$4\r\nkind\r\n$4\r\ndata\r\n")
     assert push.kind == b">" and push.value == [b"kind", b"data"]
     # map decodes to key/value pairs
-    m = _read(read_reply, b"%2\r\n$1\r\na\r\n:1\r\n$1\r\nb\r\n:2\r\n")
+    m = _reply(b"%2\r\n$1\r\na\r\n:1\r\n$1\r\nb\r\n:2\r\n")
     assert m.value == [(b"a", 1), (b"b", 2)]
     # attribute frames carry metadata before the reply they annotate
-    attr = _read(read_reply, b"|1\r\n$3\r\nkey\r\n$3\r\nval\r\n")
+    attr = _reply(b"|1\r\n$3\r\nkey\r\n$3\r\nval\r\n")
     assert attr.kind == b"|" and attr.value == [(b"key", b"val")]
 
 

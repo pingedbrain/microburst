@@ -92,6 +92,7 @@ class TcpStack:
             )
             assert up.sockets is not None
             self.upstream_port = up.sockets[0].getsockname()[1]
+            assert self.upstream_port is not None
             self.proxy = TcpProxy(
                 "127.0.0.1", self.upstream_port,
                 rules=self.rules, framing=self.framing,

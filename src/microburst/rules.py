@@ -517,9 +517,10 @@ def to_dict(rule: Rule) -> dict:
             if v is not None
         }
     if rule.corrupt is not None:
-        out["corrupt"] = {"at_bytes": rule.corrupt.at_bytes}
+        corrupt: dict = {"at_bytes": rule.corrupt.at_bytes}
         if rule.corrupt.bit != "flip":
-            out["corrupt"]["bit"] = rule.corrupt.bit
+            corrupt["bit"] = rule.corrupt.bit
+        out["corrupt"] = corrupt
     if rule.respond is not None:
         out["respond"] = {
             "base64": base64.b64encode(rule.respond.data).decode(),

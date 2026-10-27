@@ -217,6 +217,7 @@ class TcpConnection:
         Once the framer latches ``failed`` the stream degrades to raw
         passthrough — same contract as the HTTP upload framer.
         """
+        assert self.proxy.framing is not None
         framer = GenericFramer(self.proxy.framing)
         op = f"{direction}:frame"
         try:
@@ -362,6 +363,7 @@ class TcpConnection:
                 # a hung server never answers, a hung upstream never
                 # delivers. Either way the link looks dead-but-open.
                 src = self.reader if direction == "c2s" else self.ureader
+                assert src is not None
                 await self._wait_peer_eof(src)
                 return "closed"
             await asyncio.sleep(decision.timeout_ms / 1000)

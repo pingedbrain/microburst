@@ -102,6 +102,7 @@ def test_rest_xml_route53_error_response_envelope():
         "{https://route53.amazonaws.com/doc/2013-04-01/}ErrorResponse"
     )
     err = root.find("{https://route53.amazonaws.com/doc/2013-04-01/}Error")
+    assert err is not None
     assert err.findtext(
         "{https://route53.amazonaws.com/doc/2013-04-01/}Type"
     ) == "Sender"
@@ -141,6 +142,7 @@ def test_error_fields_render_per_protocol():
         fields={"Extra": "x", "Nested": {"a": 1}, "Tags": ["t1", "t2"]},
     )
     err = ET.fromstring(body).find("{*}Error")
+    assert err is not None
     assert err.findtext("{*}Extra") == "x"
     assert err.findtext("{*}Nested/{*}a") == "1"
     assert [t.text for t in err.findall("{*}Tags")] == ["t1", "t2"]
@@ -159,7 +161,9 @@ def test_query_xmlns_and_member_order():
     ns = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
     root = ET.fromstring(text)
     assert root.tag == f"{{{ns}}}ErrorResponse"
-    members = [c.tag.rsplit("}", 1)[-1] for c in root.find(f"{{{ns}}}Error")]
+    err = root.find(f"{{{ns}}}Error")
+    assert err is not None
+    members = [c.tag.rsplit("}", 1)[-1] for c in err]
     assert members[:3] == ["Type", "Code", "Message"]
     assert root.findtext(f"{{{ns}}}RequestId") == headers["x-amzn-RequestId"]
 
@@ -188,6 +192,7 @@ def test_ec2_envelope():
     root = ET.fromstring(text)
     assert root.tag == "Response"
     err = root.find("Errors/Error")
+    assert err is not None
     assert err.findtext("Code") == "InvalidInstanceID.Malformed"
     assert err.findtext("Extra") == "x"
     assert err.find("Type") is None
