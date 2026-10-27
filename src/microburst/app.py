@@ -49,7 +49,7 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def _start_watch(app: web.Application, microburst: Microburst, path: str):
+async def _start_watch(app: web.Application, microburst: Microburst, path: str):
     app["_watch_task"] = asyncio.create_task(_watch_rules(microburst, path))
 
 

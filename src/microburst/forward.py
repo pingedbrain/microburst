@@ -342,9 +342,10 @@ async def consume_upload(
         # failure means the client wrote them before the reset, so the
         # proxy's read must get that far. The upstream never sees them.
         collected = bytearray()
+        after_msgs = fault.after_messages
         scan = (
             framing.FramedStream(kind)
-            if kind is not None and fault.after_messages is not None
+            if kind is not None and after_msgs is not None
             else None
         )
         async for chunk in request.content.iter_chunked(8192):
@@ -359,7 +360,7 @@ async def consume_upload(
                         "cut_upload: malformed frame — "
                         "fell back to byte counting",
                     )
-                elif scan.frames >= fault.after_messages:
+                elif after_msgs is not None and scan.frames >= after_msgs:
                     _abort_client(request)
                     _note(
                         fault,

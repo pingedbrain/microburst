@@ -16,6 +16,13 @@ from microburst.framing import (
 )
 from microburst.rules import from_dict, to_dict
 
+
+def _spec(value):
+    out = parse_framing(value)
+    assert out is not None
+    return out
+
+
 # --- spec parsing ------------------------------------------------------------
 
 
@@ -29,7 +36,7 @@ def test_parse_passthrough_spec():
 
 
 def test_parse_cli_string_length_prefix():
-    spec = parse_framing(
+    spec = _spec(
         "length-prefix:size=4,offset=5,endian=big,includes_self=false"
     )
     assert spec.kind == "length-prefix"
@@ -40,13 +47,13 @@ def test_parse_cli_string_length_prefix():
 
 
 def test_parse_cli_string_delimiter_hex_and_escaped():
-    assert parse_framing("delimiter:bytes=0d0a").delimiter == b"\r\n"
-    assert parse_framing(r"delimiter:bytes=\r\n").delimiter == b"\r\n"
-    assert parse_framing("delimiter:bytes=\\x00").delimiter == b"\x00"
+    assert _spec("delimiter:bytes=0d0a").delimiter == b"\r\n"
+    assert _spec(r"delimiter:bytes=\r\n").delimiter == b"\r\n"
+    assert _spec("delimiter:bytes=\\x00").delimiter == b"\x00"
 
 
 def test_parse_mapping_mysql_style():
-    spec = parse_framing(
+    spec = _spec(
         {"kind": "length-prefix", "size": 3, "adjust": 1,
          "endian": "little"}
     )
@@ -76,14 +83,14 @@ def _frame_be(payload: bytes, size: int = 4) -> bytes:
 
 
 def test_length_prefix_basic():
-    f = GenericFramer(parse_framing({"kind": "length-prefix", "size": 4}))
+    f = GenericFramer(_spec({"kind": "length-prefix", "size": 4}))
     frames = f.feed(_frame_be(b"hello") + _frame_be(b"world"))
     assert frames == [_frame_be(b"hello"), _frame_be(b"world")]
     assert f.frames == 2
 
 
 def test_length_prefix_split_across_feeds():
-    f = GenericFramer(parse_framing({"kind": "length-prefix", "size": 2}))
+    f = GenericFramer(_spec({"kind": "length-prefix", "size": 2}))
     data = _frame_be(b"abcdef", size=2)
     out = []
     for i in range(0, len(data), 3):
@@ -94,7 +101,7 @@ def test_length_prefix_split_across_feeds():
 
 def test_length_prefix_offset_and_little_endian():
     # cassandra-ish: 5 header bytes, then a 4-byte LE length, then body
-    spec = parse_framing(
+    spec = _spec(
         {"kind": "length-prefix", "size": 4, "offset": 5,
          "endian": "little"}
     )
@@ -105,7 +112,7 @@ def test_length_prefix_offset_and_little_endian():
 
 def test_length_prefix_includes_self():
     # mongo-ish: 4-byte LE length counts the whole message
-    spec = parse_framing(
+    spec = _spec(
         {"kind": "length-prefix", "size": 4, "endian": "little",
          "includes_self": True}
     )
@@ -117,7 +124,7 @@ def test_length_prefix_includes_self():
 
 def test_length_prefix_adjust_covers_trailing_header():
     # mysql-ish: 3-byte LE length + 1 seq byte + payload
-    spec = parse_framing(
+    spec = _spec(
         {"kind": "length-prefix", "size": 3, "adjust": 1,
          "endian": "little"}
     )
@@ -127,19 +134,19 @@ def test_length_prefix_adjust_covers_trailing_header():
 
 
 def test_delimiter_includes_terminator():
-    f = GenericFramer(parse_framing({"kind": "delimiter", "bytes": "0d0a"}))
+    f = GenericFramer(_spec({"kind": "delimiter", "bytes": "0d0a"}))
     assert f.feed(b"one\r\ntwo\r\nthree") == [b"one\r\n", b"two\r\n"]
     assert f.drain() == b"three"
 
 
 def test_fixed_size():
-    f = GenericFramer(parse_framing({"kind": "fixed", "size": 3}))
+    f = GenericFramer(_spec({"kind": "fixed", "size": 3}))
     assert f.feed(b"abcdefg") == [b"abc", b"def"]
     assert f.drain() == b"g"
 
 
 def test_malformed_latches_and_drain_replays_verbatim():
-    f = GenericFramer(parse_framing({"kind": "length-prefix", "size": 4}))
+    f = GenericFramer(_spec({"kind": "length-prefix", "size": 4}))
     bogus = b"\xff\xff\xff\xff" + b"junk"  # declared ~4 GiB > _MAX_FRAME
     assert f.feed(bogus) == []
     assert f.failed
@@ -150,7 +157,7 @@ def test_malformed_latches_and_drain_replays_verbatim():
 def test_huge_undelimited_buffer_fails():
     from microburst.framing import _MAX_FRAME
 
-    f = GenericFramer(parse_framing({"kind": "delimiter", "bytes": "0d0a"}))
+    f = GenericFramer(_spec({"kind": "delimiter", "bytes": "0d0a"}))
     f.feed(b"x" * (_MAX_FRAME + 1))
     assert f.failed
 
@@ -221,13 +228,15 @@ def test_top_level_cut_upload_becomes_request_fault():
                                             operation="conn",
                                             payload="x"))
     assert decision is not None
-    assert decision.request_fault.after_bytes == 7
+    fault = decision.request_fault
+    assert fault is not None and fault.after_bytes == 7
 
 
 def test_corrupt_spec():
     rule = from_dict({"corrupt": {"at_bytes": 42}})
-    assert rule.corrupt.at_bytes == 42
-    assert rule.corrupt.bit == "flip"
+    corrupt = rule.corrupt
+    assert corrupt is not None and corrupt.at_bytes == 42
+    assert corrupt.bit == "flip"
     assert to_dict(rule)["corrupt"] == {"at_bytes": 42}
     with pytest.raises(ValueError):
         from_dict({"corrupt": {}})
@@ -239,11 +248,11 @@ def test_corrupt_spec():
 
 def test_respond_spec_encodings():
     r1 = from_dict({"respond": {"data": "héllo"}})  # latin-1 é = 0xe9
-    assert r1.respond.data == b"h\xe9llo"
+    assert r1.respond is not None and r1.respond.data == b"h\xe9llo"
     r2 = from_dict({"respond": {"hex": "ff00aa"}})
-    assert r2.respond.data == b"\xff\x00\xaa"
+    assert r2.respond is not None and r2.respond.data == b"\xff\x00\xaa"
     r3 = from_dict({"respond": {"base64": base64.b64encode(b"xyz").decode()}})
-    assert r3.respond.data == b"xyz"
+    assert r3.respond is not None and r3.respond.data == b"xyz"
     assert r1.respond.then == "forward"
     assert to_dict(r2)["respond"]["base64"] == "/wCq"
     with pytest.raises(ValueError):

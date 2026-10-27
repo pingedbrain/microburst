@@ -159,6 +159,7 @@ class RedisStack:
             )
             assert up.sockets is not None
             self.upstream_port = up.sockets[0].getsockname()[1]
+            assert self.upstream_port is not None
             self.proxy = RedisProxy("127.0.0.1", self.upstream_port,
                                     rules=self.rules)
             proxy = self.proxy
@@ -588,10 +589,12 @@ def test_subscribe_enters_passthrough(redis_stack):
     sock = redis_connect(stack.port)
     sock.sendall(command_wire("SUBSCRIBE", "news"))
     kind, value = read_reply_sync(sock)
+    assert value is not None
     assert kind == b"*" and value[0] == (b"$", b"subscribe")
     assert value[1] == (b"$", b"news")
     # spontaneous server pushes flow through un-decided
     kind, value = read_reply_sync(sock)
+    assert value is not None
     assert value[0] == (b"$", b"message")
     assert value[2] == (b"$", b"hello")
     # and client→upstream still works in pump mode

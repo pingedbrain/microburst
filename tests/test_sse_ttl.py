@@ -103,7 +103,8 @@ def test_sigv4_presets_pin_auth_status():
         d = engine.decide(
             RequestContext(service="s3", operation="GetObject")
         )
-        assert d is not None and d.error.code == code
+        assert d is not None and d.error is not None
+        assert d.error.code == code
         assert d.error.status == status
 
 

@@ -25,6 +25,7 @@ import struct
 import zlib
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass
+from typing import Literal
 
 EVENTSTREAM_CT = "application/vnd.amazon.eventstream"
 
@@ -158,7 +159,7 @@ class FramerSpec:
     kind: str                       # length-prefix | delimiter | fixed
     size: int = 4                   # prefix width / fixed frame size
     offset: int = 0                 # bytes skipped before the length field
-    endian: str = "big"             # big | little
+    endian: Literal["big", "little"] = "big"  # big | little
     includes_self: bool = False     # declared length counts the field itself
     adjust: int = 0                 # extra header bytes after the field
     delimiter: bytes = b""          # delimiter kind only
@@ -235,11 +236,14 @@ def parse_framing(value) -> FramerSpec | None:
     endian = str(value.get("endian", "big")).strip().lower()
     if endian not in ("big", "little"):
         raise ValueError(f"framing endian must be big|little, got {endian!r}")
+    byte_order: Literal["big", "little"] = (
+        "little" if endian == "little" else "big"
+    )
     spec = FramerSpec(
         kind=kind,
         size=int(value.get("size", 4)),
         offset=int(value.get("offset", 0)),
-        endian=endian,
+        endian=byte_order,
         includes_self=_bool(value.get("includes_self", False), "includes_self"),
         adjust=int(value.get("adjust", 0)),
         delimiter=(
