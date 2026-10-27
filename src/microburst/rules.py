@@ -1022,7 +1022,7 @@ def _float_or_none(v):
 
 def describe(decision: Decision) -> str:
     parts = []
-    if decision.latency_ms:
+    if decision.latency_ms or decision.rule.latency is not None:
         lat = decision.rule.latency
         name = f"{lat.preset}:" if lat is not None and lat.preset else ""
         parts.append(f"latency:{name}{decision.latency_ms:.0f}ms")
