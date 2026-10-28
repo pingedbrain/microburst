@@ -25,10 +25,15 @@ Fidelity rules enforced here:
   row-shaped, so bytes is the honest unit.)
 * Pub/sub and MONITOR are server-push modes: replies become unbounded
   and interleaved, so after a forwarded SUBSCRIBE/PSUBSCRIBE/SSUBSCRIBE/
-  MONITOR the proxy splices the sockets and stops deciding — documented
-  passthrough, no injection once subscribed. RESP3 ``>`` push and ``|``
-  attribute frames arriving mid-reply are relayed and don't count as
-  the command's reply.
+  MONITOR the client→upstream direction stays a raw splice while each
+  upstream push frame is decided — ``operation: message|pmessage|
+  smessage|monitor``, the channel (or pattern) as ``resource``.
+  Subscription acks and mid-mode command replies relay un-decided;
+  latency/``timeout_ms`` delay delivery, ``timeout: true`` latches the
+  stream dead, ``reset``/``cut_reply.after_messages`` abort the link,
+  ``error:`` writes a -ERR frame in the message's place, ``drop: true``
+  swallows it. RESP3 ``>`` push and ``|`` attribute frames arriving
+  mid-reply are relayed and don't count as the command's reply.
 
 Auth (AUTH/HELLO/SELECT) is just commands here — ``operation: auth``
 etc. match the verb; there is no separate handshake phase.
@@ -39,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import time
 from collections import Counter, deque
 from types import SimpleNamespace
@@ -52,6 +58,7 @@ from microburst.redis.detect import command_facts, command_text
 from microburst.redis.errors import default_message, error_reply
 from microburst.redis.proto import (
     Command,
+    Reply,
     RespProtocolError,
     read_command,
     read_reply,
@@ -64,13 +71,58 @@ logger = logging.getLogger("microburst.redis")
 SERVICE = "redis"
 
 # Commands that flip the connection to server-push streaming — after
-# forwarding, replies stop being one-per-command, so the proxy splices
-# the sockets and gets out of the way.
+# forwarding, replies stop being one-per-command, so the proxy switches
+# to per-push-frame decisions (_pump).
 _STREAMING = {"subscribe", "psubscribe", "ssubscribe", "monitor"}
+
+# MONITOR output lines: ``+<ts>.<us> [<db> <client>] "CMD" ...``. A
+# +PONG/+OK command reply while monitoring is not decided — the shape
+# check is what keeps mid-monitor commands un-decided.
+_MONITOR_LINE = re.compile(r"^\d+\.\d+ \[")
+
+# Pub/sub message frame heads (RESP2 ``*`` arrays and RESP3 ``>`` pushes
+# share the same layout). subscribe/punsubscribe acks relay un-decided.
+_MESSAGE_HEADS = {"message", "smessage"}
 
 # Verbs that end the transaction queue (RESET is the RESP3 connection
 # reset — it clears MULTI state too).
 _TX_CLOSE = {"exec", "discard", "reset"}
+
+
+def _text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
+def _push_facts(verb: str, reply: Reply) -> tuple[str, str | None, str] | None:
+    """(operation, resource, match-text) for a decidable push frame.
+
+    Pub/sub messages decide as ``operation: message|pmessage|smessage``
+    with the channel as ``resource``; MONITOR output decides as
+    ``operation: monitor`` (gated on the ``+<ts> [<db> <cli>]`` line
+    shape so +PONG/+OK command replies pass through). Acks and any other
+    frame return None — relayed un-decided.
+    """
+    if verb == "monitor":
+        if (
+            reply.kind == b"+"
+            and isinstance(reply.value, str)
+            and _MONITOR_LINE.match(reply.value)
+        ):
+            return "monitor", None, reply.value
+        return None
+    v = reply.value
+    if reply.kind not in (b"*", b">") or not isinstance(v, list) or not v:
+        return None
+    head = _text(v[0]).lower()
+    if head in _MESSAGE_HEADS and len(v) == 3:
+        channel = v[1]
+    elif head == "pmessage" and len(v) == 4:
+        channel = v[2]
+    else:
+        return None
+    return head, _text(channel), " ".join(_text(x) for x in v)
 
 
 class RedisProxy:
@@ -243,8 +295,8 @@ class RedisConnection:
             self.in_multi = False
         if verb in _STREAMING:
             if event is not None:
-                event.note = "push-mode passthrough"
-            await self._pump()
+                event.note = "push-mode: per-message decide"
+            await self._pump(verb)
             return "closed"
         if not cmd.args:
             # Empty inline line — real Redis ignores it and sends no
@@ -296,30 +348,119 @@ class RedisConnection:
             # real Redis closes the connection after +OK to QUIT
             return "closed" if verb == "quit" else "ok"
 
-    async def _pump(self) -> None:
-        """Socket splice for server-push modes — no decisions, just bytes.
+    async def _pump(self, verb: str) -> None:
+        """Server-push mode: c→u stays a raw splice; u→c decides per frame.
 
         Client→upstream keeps relaying (a subscribed client may still
-        send commands); each side's EOF propagates as a half-close to
-        the other so the survivor can drain.
+        send commands — their replies come back interleaved and relay
+        un-decided); each side's EOF propagates as a half-close to the
+        other so the survivor can drain.
         """
         assert self.uwriter is not None and self.ureader is not None
+        uwriter = self.uwriter
 
-        async def pipe(src, dst) -> None:
+        async def pipe() -> None:
             try:
-                while chunk := await src.read(65536):
-                    dst.write(chunk)
-                    await dst.drain()
+                while chunk := await self.reader.read(65536):
+                    uwriter.write(chunk)
+                    await uwriter.drain()
             except (ConnectionError, OSError, asyncio.IncompleteReadError):
                 pass
             finally:
                 with contextlib.suppress(Exception):
-                    dst.write_eof()
+                    uwriter.write_eof()
 
-        await asyncio.gather(
-            pipe(self.reader, self.uwriter),
-            pipe(self.ureader, self.writer),
-        )
+        await asyncio.gather(pipe(), self._pump_stream(verb))
+
+    async def _pump_stream(self, verb: str) -> None:
+        """Upstream→client in push mode: decide per pushed frame.
+
+        Pub/sub message frames and MONITOR lines get a ``RequestContext``
+        (``operation`` = frame head, ``resource`` = channel); acks and
+        anything else relay un-decided. A truncated/garbage upstream
+        aborts the client — dead link answers dead link, as in
+        ``_relay_reply``.
+        """
+        assert self.ureader is not None
+        msgs_relayed = 0
+        hung = False
+        try:
+            while True:
+                try:
+                    reply = await read_reply(self.ureader)
+                except (EOFError, ConnectionError, RespProtocolError):
+                    self._abort_client()
+                    return
+                if reply is None:
+                    return
+                if hung:
+                    continue  # `timeout: true` latched — drain + drop
+                facts = _push_facts(verb, reply)
+                if facts is None:
+                    self.writer.write(reply.raw)
+                    await self.writer.drain()
+                    continue
+                op, channel, text = facts
+                decision = self._decide(op, channel, text)
+                if decision is None:
+                    self.writer.write(reply.raw)
+                    await self.writer.drain()
+                    msgs_relayed += 1
+                    continue
+                event = FiredEvent(
+                    ts=time.time(),
+                    rule_id=decision.rule.id,
+                    service=SERVICE,
+                    operation=op,
+                    resource=channel,
+                    region=None,
+                    action=describe(decision),
+                    path=text[:80],
+                )
+                emit_fired(self.proxy, event)
+                # Same order as _serve_command; the stream subset:
+                # latency → reset → timeout → error → drop → relay.
+                if decision.latency_ms:
+                    await asyncio.sleep(decision.latency_ms / 1000)
+                if decision.reset:
+                    self._abort_client()
+                    return
+                if decision.timeout_ms is not None:
+                    if decision.timeout_ms < 0:
+                        hung = True
+                        continue
+                    await asyncio.sleep(decision.timeout_ms / 1000)
+                if decision.error is not None:
+                    # The -ERR lands where the message would — the fault
+                    # ate the push, matching `error:` on the command path.
+                    self.writer.write(
+                        error_reply(
+                            code=decision.error.code,
+                            message=decision.error.message
+                            or default_message(decision.error.code),
+                            fields=decision.error.fields,
+                        )
+                    )
+                    await self.writer.drain()
+                    continue
+                if decision.rule.drop:
+                    continue  # the push never reaches the client
+                cut = decision.rule.cut_reply_messages
+                if cut is not None and msgs_relayed >= cut:
+                    event.note = (
+                        f"cut_reply: {msgs_relayed} pushes relayed "
+                        "then aborted"
+                    )
+                    self._abort_client()
+                    return
+                self.writer.write(reply.raw)
+                await self.writer.drain()
+                msgs_relayed += 1
+        except (ConnectionError, OSError):
+            pass  # client vanished mid-push — close() finishes upstream
+        finally:
+            with contextlib.suppress(Exception):
+                self.writer.write_eof()
 
     # -- small helpers ------------------------------------------------------------
 

@@ -37,15 +37,20 @@ _BIG = b"x" * 200
 _BIG_REPLY = bulk(_BIG)
 
 
-async def _push_loop(stack, writer):
+async def _push_loop(stack, writer, monitor=False):
     """Spontaneous server-push frames while the connection lives —
-    RESP2-style pub/sub message arrays."""
+    RESP2-style pub/sub message arrays, or MONITOR ``+line`` frames."""
     try:
         while True:
             await asyncio.sleep(0.05)
-            writer.write(
-                array(bulk(b"message"), bulk(b"news"), bulk(b"hello"))
-            )
+            if monitor:
+                writer.write(
+                    simple('1700000000.123456 [0 127.0.0.1:6379] "GET" "k"')
+                )
+            else:
+                writer.write(
+                    array(bulk(b"message"), bulk(b"news"), bulk(b"hello"))
+                )
             await writer.drain()
     except (ConnectionError, asyncio.CancelledError, OSError):
         pass
@@ -115,6 +120,15 @@ async def _fake_upstream(stack: RedisStack, reader, writer):
                 await writer.drain()
                 stack.push_tasks.append(
                     asyncio.ensure_future(_push_loop(stack, writer))
+                )
+                continue
+            elif verb == b"monitor":
+                writer.write(simple("OK"))
+                await writer.drain()
+                stack.push_tasks.append(
+                    asyncio.ensure_future(
+                        _push_loop(stack, writer, monitor=True)
+                    )
                 )
                 continue
             else:
@@ -622,6 +636,144 @@ def test_push_frame_before_reply_relayed(redis_stack):
     assert read_reply_sync(sock) == (b"+", b"DONE")
     assert read_reply_sync(sock) == (b"+", b"PONG")
     sock.close()
+
+
+# --- stream-mode injection ----------------------------------------------------
+
+def _subscribe(stack, channel="news"):
+    """SUBSCRIBE → the ack frame — client is now in push mode."""
+    sock = redis_connect(stack.port)
+    sock.sendall(command_wire("SUBSCRIBE", channel))
+    kind, value = read_reply_sync(sock)
+    assert value is not None
+    assert kind == b"*" and value[0] == (b"$", b"subscribe")
+    return sock
+
+
+def _is_message_frame(r) -> bool:
+    return r[0] in (b"*", b">") and r[1] and r[1][0] == (b"$", b"message")
+
+
+def test_subscribe_drop_swallows_pushes(redis_stack):
+    stack = redis_stack([{"operation": "message", "drop": True}])
+    sock = _subscribe(stack)
+    # pushes are swallowed, but mid-mode commands still get replies
+    sock.sendall(command_wire("PING"))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        r = read_reply_sync(sock)
+        assert not _is_message_frame(r)
+        if r == (b"+", b"PONG"):
+            break
+    else:
+        pytest.fail("PONG never arrived in drop mode")
+    # each swallowed push is observable in the fired log
+    assert wait_for(lambda: len(stack.proxy.fired) > 0)
+    sock.close()
+    event = stack.proxy.fired[0]
+    assert event.operation == "message"
+    assert event.resource == "news"
+    assert "drop" in event.action
+
+
+def test_subscribe_error_replaces_pushes(redis_stack):
+    stack = redis_stack([{
+        "operation": "message",
+        "times": 1,
+        "error": {"code": "ERR", "message": "injected boom"},
+    }])
+    sock = _subscribe(stack)
+    # the fault eats one push — a -ERR frame lands in its place
+    r = read_reply_sync(sock)
+    assert r == (b"-", b"ERR injected boom")
+    # `times: 1` spent — the next push relays normally
+    r = read_reply_sync(sock)
+    assert _is_message_frame(r)
+    sock.close()
+
+
+def test_subscribe_reset_kills_stream(redis_stack):
+    stack = redis_stack([{"operation": "message", "reset": True}])
+    sock = _subscribe(stack)
+    recv_until_dead(sock)  # first push → TCP abort
+    sock.close()
+    assert wait_for(lambda: len(stack.proxy.fired) == 1)
+    assert stack.proxy.fired[0].action == "reset"
+
+
+def test_subscribe_cut_reply_after_messages(redis_stack):
+    stack = redis_stack([{
+        "operation": "message",
+        "cut_reply": {"after_messages": 1},
+    }])
+    sock = _subscribe(stack)
+    r = read_reply_sync(sock)  # one push relays, then the link dies
+    assert _is_message_frame(r)
+    recv_until_dead(sock)
+    sock.close()
+    # every decided push logs — the abort lands on the second one
+    assert wait_for(lambda: len(stack.proxy.fired) >= 2)
+    last = stack.proxy.fired[-1]
+    assert last.note is not None and "cut_reply" in last.note
+
+
+def test_subscribe_latency_delays_pushes(redis_stack):
+    stack = redis_stack([{"operation": "message", "latency": 150}])
+    sock = _subscribe(stack)
+    start = time.monotonic()
+    r = read_reply_sync(sock)
+    assert _is_message_frame(r)
+    assert time.monotonic() - start >= 0.12
+    sock.close()
+
+
+def test_subscribe_resource_matcher_selects_channel(redis_stack):
+    # resource matches the channel — "news" pushes don't contain "other"
+    stack = redis_stack([
+        {"operation": "message", "resource": "other", "drop": True}
+    ])
+    sock = _subscribe(stack)
+    r = read_reply_sync(sock)
+    assert _is_message_frame(r)
+    sock.close()
+    assert not stack.proxy.fired
+
+
+def test_monitor_passthrough(redis_stack):
+    stack = redis_stack()
+    sock = redis_connect(stack.port)
+    sock.sendall(command_wire("MONITOR"))
+    assert read_reply_sync(sock) == (b"+", b"OK")
+    r = read_reply_sync(sock)
+    assert r[0] == b"+" and isinstance(r[1], bytes)
+    assert r[1].startswith(b"1700000000")
+    sock.close()
+
+
+def test_monitor_lines_decided_and_dropped(redis_stack):
+    stack = redis_stack([{"operation": "monitor", "drop": True}])
+    sock = redis_connect(stack.port)
+    sock.sendall(command_wire("MONITOR"))
+    assert read_reply_sync(sock) == (b"+", b"OK")
+    # monitor lines are swallowed; +PONG (same `+` kind) still passes —
+    # the `+<ts> [<db> <cli>]` shape check keeps it un-decided
+    sock.sendall(command_wire("PING"))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        r = read_reply_sync(sock)
+        assert not (
+            r[0] == b"+"
+            and isinstance(r[1], bytes)
+            and r[1].startswith(b"1700000000")
+        )
+        if r == (b"+", b"PONG"):
+            break
+    else:
+        pytest.fail("PONG never arrived while monitoring")
+    assert wait_for(lambda: len(stack.proxy.fired) > 0)
+    sock.close()
+    assert stack.proxy.fired[0].operation == "monitor"
+    assert "drop" in stack.proxy.fired[0].action
 
 
 # --- control plane --------------------------------------------------------------------
