@@ -284,9 +284,11 @@ query-marker + required-header disambiguation.
   `target`), `operation:`=verb / `resource:`=first-key / `args:`=regex
   matching, `cut_reply: {after_bytes}` mid-reply aborts, MULTI-aware
   error skipping (`skipped: in-multi`), pub/sub+MONITOR push-mode
-  passthrough. What remains: RESP3 `!` blob-error synthesis, real
-  RESP2↔RESP3 translation, TLS (`rediss://`), subscribe-mode fault
-  resumption (interleave faults into the push stream). `[size:M]`
+  injection (per-push decide — `operation:` = frame head,
+  `resource:` = channel; `drop:` swallows frames, `error:` writes a
+  -ERR in place, `reset`/`cut_reply.after_messages` abort mid-stream).
+  What remains: RESP3 `!` blob-error synthesis, real RESP2↔RESP3
+  translation, TLS (`rediss://`). `[size:S]`
 - ~~MySQL wire mode~~ ✅ (MVP) — `src/microburst/mysql/`, a fourth
   dedicated sibling transport (`--protocol mysql`, default listen
   13306, upstream `mysql`/`mariadb` schemes): 3B-LE+seq packet codec

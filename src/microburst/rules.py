@@ -110,6 +110,7 @@ class Rule:
     latency: Latency | None = None
     timeout_ms: float | None = None  # negative = hang until the client gives up (pg `timeout: true`)
     reset: bool = False
+    drop: bool = False               # redis push mode: swallow the pushed frame (commands: use `timeout: true`)
     partial_rows: int | None = None  # pg wire mode: relay N DataRows, then TCP-abort
     partial_messages: int | None = None  # grpc mode: relay N reply messages, then trailers/RST_STREAM
     cut_reply_bytes: int | None = None  # wire modes: relay N reply bytes, then TCP-abort
@@ -391,6 +392,7 @@ def from_dict(data: dict) -> Rule:
         ),
         timeout_ms=_timeout_ms(data),
         reset=bool(data.get("reset", False)),
+        drop=bool(data.get("drop", False)),
         partial_rows=(
             int(data["partial_rows"])
             if data.get("partial_rows") is not None
@@ -503,6 +505,8 @@ def to_dict(rule: Rule) -> dict:
             out["timeout_ms"] = rule.timeout_ms
     if rule.reset:
         out["reset"] = True
+    if rule.drop:
+        out["drop"] = True
     if rule.partial_rows is not None:
         out["partial_rows"] = rule.partial_rows
     if rule.partial_messages is not None:
@@ -1039,6 +1043,8 @@ def describe(decision: Decision) -> str:
             parts.append(f"timeout:{decision.timeout_ms:.0f}ms")
     if decision.reset:
         parts.append("reset")
+    if decision.rule.drop:
+        parts.append("drop")
     if decision.rule.partial_rows is not None:
         parts.append(f"partial_rows:{decision.rule.partial_rows}")
     if decision.rule.partial_messages is not None:

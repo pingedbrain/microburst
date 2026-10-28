@@ -37,7 +37,8 @@ extension seams:
   shape as pg/. `proto.py` RESP2+RESP3 codec, `errors.py` `-CODE`
   rendering, `detect.py` verb/first-key extraction, `server.py` asyncio
   TCP proxy (`--protocol redis`) with MULTI-aware error skipping and
-  pub/sub push-mode passthrough.
+  pub/sub + MONITOR push-mode injection (per-push decide: `operation:`
+  = frame head, `resource:` = channel; `drop:` swallows pushes).
 - `src/microburst/mysql/` — MySQL wire mode: same sibling-transport
   shape as pg/. `proto.py` 3B-LE+seq packet codec (multi-packet
   reassembly, greeting/handshake-response parsers), `errors.py`
