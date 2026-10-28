@@ -45,6 +45,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import ssl
 import time
 from collections import Counter, deque
 from types import SimpleNamespace
@@ -65,6 +66,7 @@ from microburst.redis.proto import (
 )
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
+from microburst.tls import server_ssl_context
 
 logger = logging.getLogger("microburst.redis")
 
@@ -500,11 +502,12 @@ async def _serve(
     port: int,
     control_port: int,
     watch_config: str | None,
+    ssl_ctx: ssl.SSLContext | None = None,
 ) -> None:
     from microburst.app import make_control_app
 
     server = await asyncio.start_server(
-        lambda r, w: handle_client(proxy, r, w), host, port
+        lambda r, w: handle_client(proxy, r, w), host, port, ssl=ssl_ctx
     )
     app = make_control_app(proxy, watch_config=watch_config)
     runner = web.AppRunner(app)
@@ -513,8 +516,9 @@ async def _serve(
     await site.start()
 
     bound = server.sockets[0].getsockname()[1]
+    scheme = "rediss" if ssl_ctx is not None else "redis"
     print(
-        f"microburst listening on redis://{host}:{bound} → "
+        f"microburst listening on {scheme}://{host}:{bound} → "
         f"redis://{proxy.upstream_host}:{proxy.upstream_port}",
         flush=True,
     )
@@ -538,11 +542,16 @@ def run_redis(
     control_port: int,
     rules: list[dict] | None,
     watch_config: str | None = None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> int:
     """Entry point for ``microburst --protocol redis``."""
+    ssl_ctx = server_ssl_context(tls_cert, tls_key)
     proxy = RedisProxy(upstream_host, upstream_port, rules=rules)
     try:
-        asyncio.run(_serve(proxy, host, port, control_port, watch_config))
+        asyncio.run(
+            _serve(proxy, host, port, control_port, watch_config, ssl_ctx)
+        )
     except KeyboardInterrupt:
         pass
     return 0

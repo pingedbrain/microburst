@@ -66,10 +66,11 @@ async def _framed_upstream(stack, reader, writer):
 class TcpStack:
     """Fake upstream + TcpProxy + control API on one background loop."""
 
-    def __init__(self, rules, framing=None, upstream=_echo_upstream):
+    def __init__(self, rules, framing=None, upstream=_echo_upstream, ssl_ctx=None):
         self.rules = rules
         self.framing = framing
         self.upstream_handler = upstream
+        self.ssl_ctx = ssl_ctx
         self.loop = asyncio.new_event_loop()
         self.proxy: TcpProxy | None = None
         self.port: int | None = None
@@ -100,7 +101,7 @@ class TcpStack:
             proxy = self.proxy
             srv = await asyncio.start_server(
                 lambda r, w: handle_client(proxy, r, w),
-                "127.0.0.1", 0,
+                "127.0.0.1", 0, ssl=self.ssl_ctx,
             )
             assert srv.sockets is not None
             self.port = srv.sockets[0].getsockname()[1]

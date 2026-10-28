@@ -56,12 +56,17 @@ CLIENT_DEPRECATE_EOF = 0x01000000
 CLIENT_ZSTD_COMPRESSION = 0x04000000
 
 # Capabilities the proxy strips from the relayed greeting: TLS and
-# compression would re-frame or encrypt everything after the handshake,
-# and this transport terminates neither. A client that requires TLS
-# refuses the same way it would against a mysqld built without SSL.
+# compression would re-frame or encrypt everything after the handshake.
+# Plaintext mode clears both — a client that requires TLS refuses the
+# same way it would against a mysqld built without SSL.
 GREETING_CLEAR_CAPS = (
     CLIENT_SSL | CLIENT_COMPRESS | CLIENT_ZSTD_COMPRESSION
 )
+
+# With TLS termination configured, CLIENT_SSL stays advertised (the
+# client may legitimately request the encryption we now terminate);
+# compression still goes — the proxy never speaks the compressed codec.
+GREETING_CLEAR_CAPS_TLS = CLIENT_COMPRESS | CLIENT_ZSTD_COMPRESSION
 
 # --- server status flags (MYSQL DOCS: Status Flags) --------------------------
 SERVER_STATUS_IN_TRANS = 0x0001

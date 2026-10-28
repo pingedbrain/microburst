@@ -286,9 +286,10 @@ query-marker + required-header disambiguation.
   error skipping (`skipped: in-multi`), pub/sub+MONITOR push-mode
   injection (per-push decide — `operation:` = frame head,
   `resource:` = channel; `drop:` swallows frames, `error:` writes a
-  -ERR in place, `reset`/`cut_reply.after_messages` abort mid-stream).
+  -ERR in place, `reset`/`cut_reply.after_messages` abort mid-stream),
+  client-side TLS termination (`--tls-cert`/`--tls-key` → `rediss://`).
   What remains: RESP3 `!` blob-error synthesis, real RESP2↔RESP3
-  translation, TLS (`rediss://`). `[size:S]`
+  translation. `[size:S]`
 - ~~MySQL wire mode~~ ✅ (MVP) — `src/microburst/mysql/`, a fourth
   dedicated sibling transport (`--protocol mysql`, default listen
   13306, upstream `mysql`/`mariadb` schemes): 3B-LE+seq packet codec
@@ -299,16 +300,19 @@ query-marker + required-header disambiguation.
   `sql:` matches `COM_STMT_EXECUTE`, tx-aware non-fatal error
   skipping (`skipped: in-transaction`), FATAL close-after-ERR,
   `partial_rows` + `cut_reply`, startup ERR-as-first-packet refusals
-  (the real 1040/1129 shape), auth passthrough with
-  TLS/compression capability stripping, multi-statement relay
+  (the real 1040/1129 shape), auth passthrough with compression
+  capability stripping, client-side TLS termination
+  (`--tls-cert`/`--tls-key` — `CLIENT_SSL` kept in the greeting,
+  in-band upgrade on SSLRequest), multi-statement relay
   (`SERVER_MORE_RESULTS_EXISTS`-aware). What remains: the
   post-handshake-response refusal shape (per-user limits, `1045`),
   `COM_STMT_FETCH` cursor interception and replication/binlog
-  streams (currently spliced passthrough), TLS termination, LOAD
+  streams (currently spliced passthrough), LOAD
   DATA INFILE fault injection. `[size:M]`
 - ~~gRPC wire mode~~ ✅ (MVP) — `src/microburst/grpc/`, the h2c
   sibling transport (`--protocol grpc`, default listen 15051, upstream
-  `grpc://` scheme only — no TLS termination). One decision per RPC at
+  `grpc://` scheme only; client-side TLS termination via
+  `--tls-cert`/`--tls-key`). One decision per RPC at
   request HEADERS (`operation:` = lowercased `/pkg.Svc/Method` path);
   `error:` renders the trailers-only shape (`grpc-status`/`grpc-message`
   over HTTP 200 — names or numbers), `partial_messages` + `error:` lands
@@ -317,7 +321,7 @@ query-marker + required-header disambiguation.
   `timeout: true` parks the call with real flow-control backpressure
   (inbound DATA unacked — client deadline → DEADLINE_EXCEEDED
   client-side), `cut_reply`/`cut_upload` for TCP-level mid-stream death.
-  What remains: TLS (`grpcs`/TLS clients), per-stream timing wheels
+  What remains: per-stream timing wheels
   (latency/timeout currently park the connection's read pump), h2
   extension-frame relay (PRIORITY/PUSH_PROMISE), grpc-web transcoding.
   `[size:M]`
@@ -334,8 +338,10 @@ query-marker + required-header disambiguation.
   `payload:` byte-regex matching, `operation:` = `c2s:frame`/`s2c:frame`/
   `conn`, transport faults only (`latency`/`reset`/`timeout`/
   `cut_upload`/`cut_reply`/`corrupt`/`respond` — `error:` deliberately
-  has no renderer). What remains: a `slow_upload`-style rate limiter on
-  the stream, per-frame `corrupt.at_message`, TLS termination.
+  has no renderer); client-side TLS termination via
+  `--tls-cert`/`--tls-key` (`tcps://`). What remains: a
+  `slow_upload`-style rate limiter on
+  the stream, per-frame `corrupt.at_message`.
   `[size:M]`
 - ~~Cassette record/replay~~ ✅ — `--record DIR` captures upstream
   responses keyed by method+path+body; `--replay DIR` serves them

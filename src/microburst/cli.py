@@ -11,6 +11,7 @@ from aiohttp import web
 from microburst import __version__
 from microburst.app import load_config, make_app
 from microburst.core.pipeline import Microburst
+from microburst.tls import server_ssl_context
 from microburst.transports import TRANSPORTS
 
 
@@ -55,6 +56,18 @@ def build_parser() -> argparse.ArgumentParser:
         "'length-prefix:size=4,offset=0,endian=big,includes_self=false,"
         "adjust=0', 'delimiter:bytes=0d0a', 'fixed:size=64' "
         "(default: unframed byte stream). Config-file key: framing:",
+    )
+    parser.add_argument(
+        "--tls-cert", default=None,
+        help="terminate client-side TLS with this certificate (PEM) — "
+        "requires --tls-key. Wire transports upgrade in-band "
+        "(pg SSLRequest, mysql CLIENT_SSL) or listen TLS-from-connect "
+        "(redis/grpc/tcp); http becomes an https listener. Upstream "
+        "stays plaintext. Config-file key: tls_cert:",
+    )
+    parser.add_argument(
+        "--tls-key", default=None,
+        help="private key (PEM) for --tls-cert. Config-file key: tls_key:",
     )
     parser.add_argument(
         "--host", default=None, help="listen host (default: 127.0.0.1)",
@@ -179,6 +192,15 @@ def main(argv: list[str] | None = None) -> int:
     host = args.host or config.get("host") or "127.0.0.1"
     rules = config.get("rules") or []
 
+    tls_cert = args.tls_cert or config.get("tls_cert")
+    tls_key = args.tls_key or config.get("tls_key")
+    if bool(tls_cert) != bool(tls_key):
+        print(
+            "--tls-cert and --tls-key must be given together",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.watch and not args.config:
         print("--watch needs --config (the file to watch)", file=sys.stderr)
         return 2
@@ -281,11 +303,19 @@ def main(argv: list[str] | None = None) -> int:
         microburst, watch_config=args.config if args.watch else None
     )
 
-    print(f"microburst listening on http://{host}:{port} → {upstream}", flush=True)
-    print(f"control API: http://{host}:{port}/_microburst/health", flush=True)
-    print(f"point your app: AWS_ENDPOINT_URL=http://{host}:{port}", flush=True)
+    try:
+        tls_ctx = server_ssl_context(tls_cert, tls_key)
+    except ValueError as e:
+        print(f"invalid TLS config: {e}", file=sys.stderr)
+        return 2
+    scheme = "https" if tls_ctx is not None else "http"
+    print(f"microburst listening on {scheme}://{host}:{port} → {upstream}", flush=True)
+    print(f"control API: {scheme}://{host}:{port}/_microburst/health", flush=True)
+    print(f"point your app: AWS_ENDPOINT_URL={scheme}://{host}:{port}", flush=True)
 
-    web.run_app(app, host=host, port=port, print=None)
+    web.run_app(
+        app, host=host, port=port, ssl_context=tls_ctx, print=None
+    )
     return 0
 
 

@@ -45,7 +45,8 @@ extension seams:
   ERR_Packet renderer (errno↔SQLSTATE defaults), `detect.py` command
   + SQL detection (reuses pg's `sql_facts`), `server.py` asyncio TCP
   proxy (`--protocol mysql`) with tx-aware error skipping, prepared
-  stmt-id→SQL tracking, auth passthrough, TLS-capability stripping.
+  stmt-id→SQL tracking, auth passthrough, client-side TLS termination
+  (`--tls-cert`/`--tls-key`, in-band upgrade on SSLRequest).
 - `src/microburst/tcp/` — generic byte-stream wire mode
   (`--protocol tcp`) for protocols with no dedicated module: duplex
   frame/chunk pumps, transport faults only (no `error:` renderer —
@@ -56,7 +57,9 @@ extension seams:
   two `h2` state machines bridged per stream — trailers-only and
   mid-stream (`partial_messages`) error injection, RST_STREAM aborts,
   stalls with real flow-control backpressure (inbound DATA is acked
-  only once forwarded). No TLS — `grpcs://` is rejected.
+  only once forwarded). Client-side TLS termination via
+  `--tls-cert`/`--tls-key`; the upstream leg stays h2c — `grpcs://`
+  upstreams are rejected.
 - `src/microburst/transports.py` — `TRANSPORTS` registry: the seam
   `cli.py` dispatches `--protocol` through (name → `run_*` path,
   default ports, upstream schemes, extra option keys).

@@ -360,7 +360,9 @@ in `path`.
 
 - Auth is passthrough only — SCRAM works because credentials are
   relayed uninspected; the proxy never synthesizes `AuthenticationOk`.
-- `SSLRequest`/`GSSENCRequest` are refused with `N` (plaintext only).
+- `GSSENCRequest` is refused with `N`. `SSLRequest` gets `S` + an
+  in-band TLS upgrade when `--tls-cert`/`--tls-key` is configured,
+  otherwise `N` (plaintext only); the upstream leg stays plaintext.
 - COPY streams relay verbatim but are never intercepted.
 - No replication protocol (`walsender`/`CopyBothResponse`), no
   `FunctionCall` interception (it forwards + relays), no per-statement
@@ -435,12 +437,18 @@ first ~80 chars of the command in `path`.
 
 **Limitations (honest list):**
 
-- Pub/sub and MONITOR are passthrough-only: once a `SUBSCRIBE`/
-  `PSUBSCRIBE`/`SSUBSCRIBE`/`MONITOR` forwards, the connection is a
-  server-push stream and the proxy splices the sockets — no injection
-  while subscribed. RESP3 `>` push and `|` attribute frames arriving
+- In pub/sub and MONITOR mode (after `SUBSCRIBE`/`PSUBSCRIBE`/
+  `SSUBSCRIBE`/`MONITOR`) upstream→client is decided per push frame:
+  `operation:` = `message`/`pmessage`/`smessage`/`monitor`,
+  `resource:` = channel. `drop:` swallows a push, `error:` writes a
+  `-ERR` in its place, `latency` delays, `reset`/
+  `cut_reply.after_messages` abort the stream; subscription acks and
+  unrelated replies pass undecided. Client→upstream stays a raw
+  splice. RESP3 `>` push and `|` attribute frames arriving
   mid-reply are relayed but never counted as the command's reply.
-- No TLS (`rediss://` is rejected), no RESP2↔RESP3 translation — the
+- TLS termination on the client leg via `--tls-cert`/`--tls-key`
+  (`rediss://` clients); the upstream leg stays plaintext. No
+  RESP2↔RESP3 translation — the
   upstream answers in whatever mode the client negotiated via `HELLO`.
 - AUTH is just a command: `operation: auth` matches the verb, but the
   proxy never synthesizes `+OK` for credentials upstream didn't check.
@@ -536,12 +544,16 @@ as above, and the first ~80 chars of SQL (or the command name) in
   auth-switch/more-data → OK/ERR exchange relays verbatim, so
   `caching_sha2_password` and `mysql_native_password` both work; the
   proxy never synthesizes auth success.
-- No TLS: `CLIENT_SSL` and `CLIENT_COMPRESS` are stripped from the
-  relayed greeting (compression would re-frame every later packet) —
-  clients fall back to plaintext or refuse client-side, exactly as
-  against a mysqld without SSL. A client that sends an SSLRequest
-  anyway gets a real `1043 Bad handshake` ERR and a close.
-  `mysqls://`-style upstream URLs are rejected.
+- TLS termination on the client leg via `--tls-cert`/`--tls-key`:
+  `CLIENT_SSL` stays in the relayed greeting and an SSLRequest
+  upgrades the connection in-band (the handshake response is then
+  read inside TLS). Without a cert pair `CLIENT_SSL` is stripped
+  and an SSLRequest gets a real `1043 Bad handshake` ERR and a
+  close — exactly as against a mysqld without SSL.
+  `CLIENT_COMPRESS`/`CLIENT_ZSTD_COMPRESSION` are always stripped
+  (compression would re-frame every later packet).
+  `mysqls://`-style upstream URLs are rejected — the upstream leg
+  stays plaintext.
 - `COM_STMT_FETCH` cursor flows and the replication family
   (`COM_BINLOG_DUMP`, `COM_BINLOG_DUMP_GTID`, `COM_REGISTER_SLAVE`,
   `COM_TABLE_DUMP`) are streaming sub-protocols — after forwarding, the
@@ -647,7 +659,8 @@ sql/args text.
   renderer in tcp mode` and the unit forwards untouched. Use a
   dedicated transport (pg/redis) for real protocol errors, or
   `respond:` to hand-craft one.
-- No TLS — the proxy never terminates or starts it.
+- TLS termination on the client leg only (`--tls-cert`/`--tls-key` →
+  `tcps://`); the upstream leg stays plaintext.
 - No protocol semantics: no operation names, no transaction awareness,
   no per-message-type matching beyond `payload:` on raw bytes.
 - Malformed framing latches the parser off — the stream falls back to
@@ -732,8 +745,10 @@ rules:
 
 **Honest limits:**
 
-- **h2c only** — no TLS termination: `grpcs://` upstreams are rejected
-  and TLS-expecting clients get a dead link. Use `grpcurl -plaintext`.
+- **Upstream is h2c only** — `grpcs://` upstreams are rejected. The
+  client leg can terminate TLS via `--tls-cert`/`--tls-key`
+  (`grpcs://` clients); without it TLS-expecting clients get a dead
+  link — use `grpcurl -plaintext`.
 - `latency`/`timeout_ms` sleep the connection's read pump while they
   run — on a multiplexed connection other streams wait too (MVP
   tradeoff; per-stream timers are the follow-up).

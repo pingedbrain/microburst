@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import ssl
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
@@ -61,6 +62,7 @@ from microburst.framing import GenericFramer, parse_framing
 from microburst.observe import emit_fired
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
+from microburst.tls import server_ssl_context
 
 logger = logging.getLogger("microburst.tcp")
 
@@ -566,11 +568,12 @@ async def _serve(
     port: int,
     control_port: int,
     watch_config: str | None,
+    ssl_ctx: ssl.SSLContext | None = None,
 ) -> None:
     from microburst.app import make_control_app
 
     server = await asyncio.start_server(
-        lambda r, w: handle_client(proxy, r, w), host, port
+        lambda r, w: handle_client(proxy, r, w), host, port, ssl=ssl_ctx
     )
     app = make_control_app(proxy, watch_config=watch_config)
     runner = web.AppRunner(app)
@@ -582,8 +585,9 @@ async def _serve(
     framed = (
         f" framing={proxy.framing.kind}" if proxy.framing else " unframed"
     )
+    scheme = "tcps" if ssl_ctx is not None else "tcp"
     print(
-        f"microburst listening on tcp://{host}:{bound} → "
+        f"microburst listening on {scheme}://{host}:{bound} → "
         f"tcp://{proxy.upstream_host}:{proxy.upstream_port}{framed}",
         flush=True,
     )
@@ -605,13 +609,18 @@ def run_tcp(
     rules: list[dict] | None,
     watch_config: str | None = None,
     framing=None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> int:
     """Entry point for ``microburst --protocol tcp``."""
+    ssl_ctx = server_ssl_context(tls_cert, tls_key)
     proxy = TcpProxy(
         upstream_host, upstream_port, rules=rules, framing=framing
     )
     try:
-        asyncio.run(_serve(proxy, host, port, control_port, watch_config))
+        asyncio.run(
+            _serve(proxy, host, port, control_port, watch_config, ssl_ctx)
+        )
     except KeyboardInterrupt:
         pass
     return 0

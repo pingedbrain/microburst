@@ -13,8 +13,9 @@ from aiohttp import web
 class ServerThread:
     """Run an aiohttp app on a background event loop on a random port."""
 
-    def __init__(self, app: web.Application):
+    def __init__(self, app: web.Application, ssl_ctx=None):
         self.app = app
+        self.ssl_ctx = ssl_ctx
         self.loop = asyncio.new_event_loop()
         self.port: int | None = None
         self._runner: web.AppRunner | None = None
@@ -25,7 +26,9 @@ class ServerThread:
         asyncio.set_event_loop(self.loop)
         runner = web.AppRunner(self.app)
         self.loop.run_until_complete(runner.setup())
-        site = web.TCPSite(runner, "127.0.0.1", 0)
+        site = web.TCPSite(
+            runner, "127.0.0.1", 0, ssl_context=self.ssl_ctx
+        )
         self.loop.run_until_complete(site.start())
         self._runner = runner
         server = site._server

@@ -9,8 +9,9 @@ can't leave the *connection* alive while killing just one stream.
 
 Doesn't need an emulator — it needs any gRPC server speaking cleartext
 h2c on `localhost:50051` (grpcurl, a local dev server, the canonical
-`grpcbin`-style test server all qualify). TLS is out of scope: h2c
-only, so clients must use `-plaintext`/`insecure` channels.
+`grpcbin`-style test server all qualify). The upstream leg is h2c
+only; the client leg can terminate TLS via `--tls-cert`/`--tls-key`,
+otherwise clients must use `-plaintext`/`insecure` channels.
 
 ## Run it
 

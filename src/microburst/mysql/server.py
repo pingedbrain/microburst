@@ -34,14 +34,15 @@ error reference for errno/SQLSTATE pairs; labeled in errors.py):
   libraries are required to accept ERR as the first packet). A
   post-handshake-response refusal is the other real shape — not the
   one implemented here.
-* TLS is refused, not terminated: ``CLIENT_SSL`` (and compression —
-  it re-frames every later packet) are stripped from the relayed
-  greeting, so clients fall back to plaintext or refuse client-side
-  exactly as against a mysqld without SSL. A client that sends an
-  SSLRequest anyway gets a real ERR ``1043/08S01 Bad handshake`` and a
-  close (evidence label: inference — 1043 is the documented malformed-
-  handshake errno; what a non-SSL server does with an unsolicited
-  SSLRequest is not separately documented).
+* TLS: without ``ssl_ctx`` it is refused, not terminated —
+  ``CLIENT_SSL`` (and compression — it re-frames every later packet)
+  are stripped from the relayed greeting, so clients fall back to
+  plaintext or refuse client-side exactly as against a mysqld without
+  SSL; an SSLRequest anyway gets a real ERR ``1043/08S01 Bad
+  handshake`` and a close (evidence label: inference — 1043 is the
+  documented malformed-handshake errno). With ``ssl_ctx`` set the
+  greeting keeps ``CLIENT_SSL`` and an SSLRequest upgrades the client
+  socket — the real handshake response then arrives inside TLS.
 * Auth is passthrough only — the whole greeting → response →
   (auth-switch / more-data)* → OK/ERR exchange is relayed verbatim, so
   caching_sha2_password and mysql_native_password both work; the proxy
@@ -60,6 +61,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import ssl
 import time
 from collections import Counter, deque
 from dataclasses import dataclass
@@ -83,6 +85,7 @@ from microburst.mysql.proto import (
     COM_STMT_CLOSE,
     COM_STMT_PREPARE,
     GREETING_CLEAR_CAPS,
+    GREETING_CLEAR_CAPS_TLS,
     HEAD_ERR,
     SERVER_MORE_RESULTS_EXISTS,
     SERVER_STATUS_IN_TRANS,
@@ -104,6 +107,7 @@ from microburst.mysql.proto import (
 from microburst.observe import emit_fired
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
+from microburst.tls import server_ssl_context, upgrade_writer_tls
 
 logger = logging.getLogger("microburst.mysql")
 
@@ -138,9 +142,11 @@ class MysqlProxy:
         upstream_port: int,
         rules: list[dict] | None = None,
         fired_capacity: int = 2000,
+        ssl_ctx: ssl.SSLContext | None = None,
     ) -> None:
         self.upstream_host = upstream_host
         self.upstream_port = upstream_port
+        self.ssl_ctx = ssl_ctx
         self.stats = ProxyStats()
         self.engine = RuleEngine()
         if rules:
@@ -345,15 +351,24 @@ class MysqlConnection:
                 await self.writer.drain()
             return False
         self.caps = greeting_capabilities(payload)
+        # With TLS termination CLIENT_SSL survives to the client — the
+        # client may legitimately ask for the encryption we now provide.
+        clear = (
+            GREETING_CLEAR_CAPS_TLS
+            if self.proxy.ssl_ctx is not None
+            else GREETING_CLEAR_CAPS
+        )
         self.writer.write(
             packet_bytes(
-                strip_greeting_caps(payload, GREETING_CLEAR_CAPS),
+                strip_greeting_caps(payload, clear),
                 greeting.seq,
             )
         )
         await self.writer.drain()
 
-        # The client's handshake response — TLS requests die here.
+        # The client's handshake response — an SSLRequest without TLS
+        # configured gets the real 1043 refusal; with it, the client
+        # starts TLS and the true response arrives inside the tunnel.
         try:
             resp = await read_packet(self.reader)
         except (EOFError, ConnectionError, MysqlProtocolError):
@@ -364,23 +379,34 @@ class MysqlConnection:
         if info is not None:
             self.caps &= info.capabilities
             if info.ssl_request:
-                errno, sqlstate, message = _SSL_REFUSAL
-                self.writer.write(
-                    packet_bytes(
-                        err_payload(
-                            errno=errno,
-                            sqlstate=sqlstate,
-                            message=message,
-                            protocol_41=bool(
-                                info.capabilities & CLIENT_PROTOCOL_41
+                if self.proxy.ssl_ctx is None:
+                    errno, sqlstate, message = _SSL_REFUSAL
+                    self.writer.write(
+                        packet_bytes(
+                            err_payload(
+                                errno=errno,
+                                sqlstate=sqlstate,
+                                message=message,
+                                protocol_41=bool(
+                                    info.capabilities & CLIENT_PROTOCOL_41
+                                ),
                             ),
-                        ),
-                        seq=(resp.seq + 1) & 0xFF,
+                            seq=(resp.seq + 1) & 0xFF,
+                        )
                     )
-                )
-                with contextlib.suppress(Exception):
-                    await self.writer.drain()
-                return False
+                    with contextlib.suppress(Exception):
+                        await self.writer.drain()
+                    return False
+                await upgrade_writer_tls(self.writer, self.proxy.ssl_ctx)
+                try:
+                    resp = await read_packet(self.reader)
+                except (EOFError, ConnectionError, MysqlProtocolError):
+                    return False
+                if resp is None:
+                    return False
+                info = parse_handshake_response(resp.payload)
+                if info is not None:
+                    self.caps &= info.capabilities
         self.uwriter.write(resp.raw)
         await self.uwriter.drain()
         return True
@@ -899,9 +925,14 @@ def run_mysql(
     control_port: int,
     rules: list[dict] | None,
     watch_config: str | None = None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> int:
     """Entry point for ``microburst --protocol mysql``."""
-    proxy = MysqlProxy(upstream_host, upstream_port, rules=rules)
+    ssl_ctx = server_ssl_context(tls_cert, tls_key)
+    proxy = MysqlProxy(
+        upstream_host, upstream_port, rules=rules, ssl_ctx=ssl_ctx
+    )
     try:
         asyncio.run(_serve(proxy, host, port, control_port, watch_config))
     except KeyboardInterrupt:
