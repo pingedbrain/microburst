@@ -147,9 +147,15 @@ async def _fake_upstream(stack: PgStack, reader, writer):
 class PgStack:
     """Fake upstream + PgProxy + control API on one background loop."""
 
-    def __init__(self, rules: list[dict], scram: bool = False):
+    def __init__(
+        self,
+        rules: list[dict],
+        scram: bool = False,
+        ssl_ctx=None,
+    ):
         self.rules = rules
         self.scram = scram
+        self.ssl_ctx = ssl_ctx
         self.loop = asyncio.new_event_loop()
         self.proxy: PgProxy | None = None
         self.port: int | None = None
@@ -172,7 +178,9 @@ class PgStack:
             assert up.sockets is not None
             uport = up.sockets[0].getsockname()[1]
             self.upstream_port = uport
-            self.proxy = PgProxy("127.0.0.1", uport, rules=self.rules)
+            self.proxy = PgProxy(
+                "127.0.0.1", uport, rules=self.rules, ssl_ctx=self.ssl_ctx
+            )
             proxy = self.proxy
             srv = await asyncio.start_server(
                 lambda r, w: handle_client(proxy, r, w),
@@ -218,8 +226,10 @@ class PgStack:
 def pg_stack():
     started = []
 
-    def _start(rules=None, scram: bool = False):
-        stack = PgStack(rules or [], scram=scram).start()
+    def _start(rules=None, scram: bool = False, ssl_ctx=None):
+        stack = PgStack(
+            rules or [], scram=scram, ssl_ctx=ssl_ctx
+        ).start()
         started.append(stack)
         return stack
 

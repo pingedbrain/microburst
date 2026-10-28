@@ -75,55 +75,64 @@ TRANSPORTS: dict[str, Transport] = {
     "postgres": Transport(
         name="postgres",
         help="PostgreSQL v3 wire proxy — SQLSTATE-correct errors, "
-        "tx-aware injection, partial_rows.",
+        "tx-aware injection, partial_rows, optional TLS termination "
+        "(--tls-cert/--tls-key).",
         run="microburst.pg.server:run_postgres",
         default_port=15432,
         default_upstream="localhost:5432",
         schemes=("postgres", "postgresql"),
         upstream_port=5432,
+        options=("tls_cert", "tls_key"),
     ),
     "redis": Transport(
         name="redis",
         help="RESP2+RESP3 wire proxy — -CODE errors, MULTI-aware "
-        "skipping, cut_reply.",
+        "skipping, cut_reply, optional TLS termination "
+        "(--tls-cert/--tls-key).",
         run="microburst.redis.server:run_redis",
         default_port=16379,
         default_upstream="localhost:6379",
         schemes=("redis",),
         upstream_port=6379,
+        options=("tls_cert", "tls_key"),
     ),
     "mysql": Transport(
         name="mysql",
         help="MySQL/MariaDB wire proxy — errno+SQLSTATE ERR_Packet "
-        "injection, tx-aware skipping, auth passthrough, partial_rows.",
+        "injection, tx-aware skipping, auth passthrough, partial_rows, "
+        "optional TLS termination (--tls-cert/--tls-key).",
         run="microburst.mysql.server:run_mysql",
         default_port=13306,
         default_upstream="localhost:3306",
         schemes=("mysql", "mariadb"),
         upstream_port=3306,
+        options=("tls_cert", "tls_key"),
     ),
     "grpc": Transport(
         name="grpc",
-        help="gRPC wire proxy — h2c (cleartext HTTP/2) data plane: "
-        "trailers-only grpc-status errors, partial_messages mid-stream "
-        "faults, RST_STREAM aborts, stalls with real flow-control "
-        "backpressure. No TLS — grpcs:// upstreams are rejected.",
+        help="gRPC wire proxy — h2c HTTP/2 data plane: trailers-only "
+        "grpc-status errors, partial_messages mid-stream faults, "
+        "RST_STREAM aborts, stalls with real flow-control backpressure. "
+        "Client-side TLS via --tls-cert/--tls-key; upstream stays "
+        "cleartext (grpcs:// upstreams are rejected).",
         run="microburst.grpc.server:run_grpc",
         default_port=15051,
         default_upstream="localhost:50051",
         schemes=("grpc",),
         upstream_port=50051,
+        options=("tls_cert", "tls_key"),
     ),
     "tcp": Transport(
         name="tcp",
         help="generic byte-stream proxy for protocols without a "
         "dedicated module — transport faults only (no protocol-correct "
-        "errors), optional --framing.",
+        "errors), optional --framing, optional TLS termination "
+        "(--tls-cert/--tls-key).",
         run="microburst.tcp.server:run_tcp",
         default_port=None,          # derived: upstream_port + 10000
         default_upstream=None,      # required
         schemes=(),                 # any scheme accepted
         upstream_port=None,         # explicit port required
-        options=("framing",),
+        options=("framing", "tls_cert", "tls_key"),
     ),
 }

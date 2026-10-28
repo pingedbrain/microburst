@@ -127,8 +127,9 @@ async def _grpc_upstream(stack, reader, writer):
 class GrpcStack:
     """Fake h2c upstream + GrpcProxy + control API on one background loop."""
 
-    def __init__(self, rules=None, **reply):
+    def __init__(self, rules=None, ssl_ctx=None, **reply):
         self.rules = rules or []
+        self.ssl_ctx = ssl_ctx
         self.reply_msgs = reply.get("reply_msgs", 1)
         self.reply_status = reply.get("reply_status", "0")
         self.raw_reply = reply.get("raw_reply")
@@ -166,7 +167,7 @@ class GrpcStack:
             proxy = self.proxy
             srv = await asyncio.start_server(
                 lambda r, w: handle_client(proxy, r, w),
-                "127.0.0.1", 0,
+                "127.0.0.1", 0, ssl=self.ssl_ctx,
             )
             assert srv.sockets is not None
             self.port = srv.sockets[0].getsockname()[1]
@@ -224,10 +225,14 @@ def grpc_stack():
 class GrpcClient:
     """Minimal blocking h2 client — what grpcurl/grpcio drive on the wire."""
 
-    def __init__(self, port: int):
+    def __init__(self, port: int, tls_ctx=None):
         self.sock = socket.create_connection(
             ("127.0.0.1", port), timeout=10
         )
+        if tls_ctx is not None:
+            self.sock = tls_ctx.wrap_socket(
+                self.sock, server_hostname="localhost"
+            )
         self.conn = H2Connection(
             H2Configuration(client_side=True, header_encoding="utf-8")
         )

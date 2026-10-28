@@ -26,10 +26,11 @@ Fidelity rules enforced here (postgresql.org/docs/protocol-flow):
 * Auth is passthrough only (SCRAM included) — the proxy never
   synthesizes credentials; AuthenticationOk is upstream's to send.
 
-Startup negotiation handles ``SSLRequest``/``GSSENCRequest`` with 'N'
-(refuse) and keeps waiting — real drivers require this before the real
-startup packet arrives. ``CancelRequest`` is forwarded and both ends
-close (no reply is defined for it).
+Startup negotiation handles ``SSLRequest`` with 'S' + a TLS upgrade
+when ``ssl_ctx`` is set (else 'N'), ``GSSENCRequest`` always with 'N',
+and keeps waiting — real drivers require this before the real startup
+packet arrives. ``CancelRequest`` is forwarded and both ends close (no
+reply is defined for it).
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import ssl
 import struct
 import time
 from collections import Counter, deque
@@ -65,6 +67,7 @@ from microburst.pg.proto import (
 )
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
+from microburst.tls import server_ssl_context, upgrade_writer_tls
 
 logger = logging.getLogger("microburst.pg")
 
@@ -107,9 +110,11 @@ class PgProxy:
         upstream_port: int,
         rules: list[dict] | None = None,
         fired_capacity: int = 2000,
+        ssl_ctx: ssl.SSLContext | None = None,
     ) -> None:
         self.upstream_host = upstream_host
         self.upstream_port = upstream_port
+        self.ssl_ctx = ssl_ctx
         self.stats = ProxyStats()
         self.engine = RuleEngine()
         if rules:
@@ -220,19 +225,27 @@ class PgConnection:
     # -- startup phase ----------------------------------------------------------
 
     async def _negotiate_startup(self) -> tuple[int | None, bytes]:
-        """Read the real startup packet, refusing SSL/GSS upgrade requests.
+        """Read the real startup packet; handle SSL/GSS upgrade requests.
 
-        Drivers (libpq among them) send SSLRequest/GSSENCRequest first;
-        replying 'N' keeps the session on plaintext — the MVP terminates
-        no TLS, matching the unencrypted local dev workflow.
+        Drivers (libpq among them) send SSLRequest/GSSENCRequest first.
+        With a TLS context configured the proxy answers 'S' to SSLRequest
+        and upgrades the client socket — the real startup packet then
+        arrives inside TLS. Without one it replies 'N' and the session
+        stays plaintext. GSSENC is always refused: there is no GSSAPI
+        support to terminate.
         """
         first = await read_startup(self.reader)
         if first is None:
             return None, b""
         code, body = first
         while code in (SSL_REQUEST_CODE, GSSENC_REQUEST_CODE):
-            self.writer.write(b"N")
-            await self.writer.drain()
+            if code == SSL_REQUEST_CODE and self.proxy.ssl_ctx is not None:
+                self.writer.write(b"S")
+                await self.writer.drain()
+                await upgrade_writer_tls(self.writer, self.proxy.ssl_ctx)
+            else:
+                self.writer.write(b"N")
+                await self.writer.drain()
             nxt = await read_startup(self.reader)
             if nxt is None:
                 return None, b""
@@ -633,9 +646,14 @@ def run_postgres(
     control_port: int,
     rules: list[dict] | None,
     watch_config: str | None = None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> int:
     """Entry point for ``microburst --protocol postgres``."""
-    proxy = PgProxy(upstream_host, upstream_port, rules=rules)
+    ssl_ctx = server_ssl_context(tls_cert, tls_key)
+    proxy = PgProxy(
+        upstream_host, upstream_port, rules=rules, ssl_ctx=ssl_ctx
+    )
     try:
         asyncio.run(_serve(proxy, host, port, control_port, watch_config))
     except KeyboardInterrupt:

@@ -4,9 +4,10 @@ gRPC is not request→reply like the AWS pipeline nor a framed chat like
 pg/redis: it is multiplexed HTTP/2 streams, one per RPC call. The proxy
 therefore runs **two** ``h2.connection.H2Connection`` state machines —
 a server-side one facing the client, a client-side one facing the
-upstream — and maps streams between them. Both legs are prior-knowledge
-h2c (the common local-dev gRPC setup); TLS termination is out of scope
-(``grpcs://`` upstreams are rejected at the CLI seam).
+upstream — and maps streams between them. The client leg may terminate
+TLS (``--tls-cert``/``--tls-key`` → ``grpcs`` listener); the upstream
+leg stays prior-knowledge h2c (``grpcs://`` upstreams are rejected at
+the CLI seam).
 
 Decision unit = **one RPC call**, taken when the client's request
 HEADERS arrive: ``:path`` (``/package.Service/Method``) becomes
@@ -58,6 +59,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import ssl
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
@@ -97,6 +99,7 @@ from microburst.grpc.proto import (
 from microburst.observe import emit_fired
 from microburst.rules import FiredEvent, RuleEngine, describe
 from microburst.stats import ProxyStats
+from microburst.tls import server_ssl_context
 
 logger = logging.getLogger("microburst.grpc")
 
@@ -892,11 +895,12 @@ async def _serve(
     port: int,
     control_port: int,
     watch_config: str | None,
+    ssl_ctx: ssl.SSLContext | None = None,
 ) -> None:
     from microburst.app import make_control_app
 
     server = await asyncio.start_server(
-        lambda r, w: handle_client(proxy, r, w), host, port
+        lambda r, w: handle_client(proxy, r, w), host, port, ssl=ssl_ctx
     )
     app = make_control_app(proxy, watch_config=watch_config)
     runner = web.AppRunner(app)
@@ -905,8 +909,9 @@ async def _serve(
     await site.start()
 
     bound = server.sockets[0].getsockname()[1]
+    scheme = "grpcs" if ssl_ctx is not None else "grpc"
     print(
-        f"microburst listening on grpc://{host}:{bound} (h2c) → "
+        f"microburst listening on {scheme}://{host}:{bound} → "
         f"grpc://{proxy.upstream_host}:{proxy.upstream_port}",
         flush=True,
     )
@@ -930,11 +935,16 @@ def run_grpc(
     control_port: int,
     rules: list[dict] | None,
     watch_config: str | None = None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> int:
     """Entry point for ``microburst --protocol grpc``."""
+    ssl_ctx = server_ssl_context(tls_cert, tls_key)
     proxy = GrpcProxy(upstream_host, upstream_port, rules=rules)
     try:
-        asyncio.run(_serve(proxy, host, port, control_port, watch_config))
+        asyncio.run(
+            _serve(proxy, host, port, control_port, watch_config, ssl_ctx)
+        )
     except KeyboardInterrupt:
         pass
     return 0

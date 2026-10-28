@@ -148,8 +148,9 @@ async def _fake_upstream(stack: RedisStack, reader, writer):
 class RedisStack:
     """Fake upstream + RedisProxy + control API on one background loop."""
 
-    def __init__(self, rules: list[dict]):
+    def __init__(self, rules: list[dict], ssl_ctx=None):
         self.rules = rules
+        self.ssl_ctx = ssl_ctx
         self.loop = asyncio.new_event_loop()
         self.proxy: RedisProxy | None = None
         self.port: int | None = None
@@ -179,7 +180,7 @@ class RedisStack:
             proxy = self.proxy
             srv = await asyncio.start_server(
                 lambda r, w: handle_client(proxy, r, w),
-                "127.0.0.1", 0,
+                "127.0.0.1", 0, ssl=self.ssl_ctx,
             )
             assert srv.sockets is not None
             self.port = srv.sockets[0].getsockname()[1]
@@ -223,8 +224,8 @@ class RedisStack:
 def redis_stack():
     started = []
 
-    def _start(rules=None):
-        stack = RedisStack(rules or []).start()
+    def _start(rules=None, ssl_ctx=None):
+        stack = RedisStack(rules or [], ssl_ctx=ssl_ctx).start()
         started.append(stack)
         return stack
 

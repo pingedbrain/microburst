@@ -215,9 +215,12 @@ async def _fake_upstream(stack: MysqlStack, reader, writer):
 class MysqlStack:
     """Fake upstream + MysqlProxy + control API on one background loop."""
 
-    def __init__(self, rules: list[dict], auth_switch: bool = False):
+    def __init__(
+        self, rules: list[dict], auth_switch: bool = False, ssl_ctx=None
+    ):
         self.rules = rules
         self.auth_switch = auth_switch
+        self.ssl_ctx = ssl_ctx
         self.loop = asyncio.new_event_loop()
         self.proxy: MysqlProxy | None = None
         self.port: int | None = None
@@ -243,7 +246,9 @@ class MysqlStack:
             assert up.sockets is not None
             uport = up.sockets[0].getsockname()[1]
             self.upstream_port = uport
-            self.proxy = MysqlProxy("127.0.0.1", uport, rules=self.rules)
+            self.proxy = MysqlProxy(
+                "127.0.0.1", uport, rules=self.rules, ssl_ctx=self.ssl_ctx
+            )
             proxy = self.proxy
             srv = await asyncio.start_server(
                 lambda r, w: handle_client(proxy, r, w),
@@ -289,8 +294,10 @@ class MysqlStack:
 def mysql_stack():
     started = []
 
-    def _start(rules=None, auth_switch: bool = False):
-        stack = MysqlStack(rules or [], auth_switch=auth_switch).start()
+    def _start(rules=None, auth_switch: bool = False, ssl_ctx=None):
+        stack = MysqlStack(
+            rules or [], auth_switch=auth_switch, ssl_ctx=ssl_ctx
+        ).start()
         started.append(stack)
         return stack
 
